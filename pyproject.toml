@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-orchestra"
+version = "0.1.0"
+description = "Autonomous Multi-Agent Orchestration, IPC Event Bus, and Reactive Git Engine"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Syed Mohammad Adeel", email = "adeel@sefgh.org" }
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Version Control :: Git",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = []
+
+[project.optional-dependencies]
+watch = ["watchdog>=4.0.0"]
+yaml = ["pyyaml>=6.0"]
+all = ["watchdog>=4.0.0", "pyyaml>=6.0"]
+
+[project.scripts]
+orchestra = "orchestra.cli:main"
+agent-orchestra = "orchestra.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["orchestra*"]
+

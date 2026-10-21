@@ -1,0 +1,50 @@
+{
+  "workspace_root": "..",
+  "orchestra_dir": ".orchestra",
+  "coordination_file": "docs/coordination.md",
+  "watch_paths": [
+    "backend",
+    "contracts",
+    "docs",
+    "learn-go",
+    "src",
+    "supabase"
+  ],
+  "ignore_patterns": [
+    ".git/*",
+    ".orchestra/*",
+    "node_modules/*",
+    "__pycache__/*",
+    "*.pyc",
+    "*.log",
+    ".next/*",
+    "dist/*"
+  ],
+  "debounce_ms": 400,
+  "lock_lease_seconds": 1800,
+  "git": {
+    "enabled": true,
+    "main_branch": "main",
+    "sync_branches": [
+      "go-backend"
+    ],
+    "remote": "origin",
+    "auto_commit": true,
+    "auto_push": true,
+    "commit_prefix": "chore(coordination):"
+  },
+  "ci": {
+    "enabled": true,
+    "provider": "github_actions",
+    "workflow_name": "backend-verification.yml",
+    "poll_interval_seconds": 15,
+    "timeout_seconds": 900
+  },
+  "pipeline": {
+    "verify_command": "npm run handoff",
+    "pre_claim_command": "git fetch origin --prune",
+    "post_sync_command": null,
+    "on_error_command": null
+  }
+}
+
