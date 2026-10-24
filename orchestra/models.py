@@ -70,7 +70,7 @@ class TaskClaim:
 class HandoffPayload:
     task_id: str
     agent_id: str
-    status: str  # "complete" | "paused" | "failed"
+    status: str  # "complete" | "paused" | "failed" | "unknown"
     summary: str
     changed_files: List[str] = field(default_factory=list)
     test_results: Dict[str, Any] = field(default_factory=dict)
@@ -84,7 +84,8 @@ class HandoffPayload:
         return cls(
             task_id=str(data.get("task_id", "")),
             agent_id=str(data.get("agent_id", "")),
-            status=str(data.get("status", "complete")),
+            # A handoff that doesn't say it's complete must never be treated as complete.
+            status=str(data.get("status", "unknown")),
             summary=str(data.get("summary", "")),
             changed_files=list(data.get("changed_files", [])),
             test_results=dict(data.get("test_results", {})),

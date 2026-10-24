@@ -101,7 +101,12 @@ def cmd_release(args: argparse.Namespace) -> int:
     bus.emit(
         event_type=EventType.HANDOFF_REQUEST,
         source_agent=args.agent or "unknown",
-        payload={"task_id": task_id, "status": args.status, "summary": args.summary or ""},
+        payload={
+            "task_id": task_id,
+            "status": args.status,
+            "summary": args.summary or "",
+            "released_lock": current,
+        },
     )
     print(f"[OK] Writer lock released for task '{task_id}'. Event emitted.")
     return 0
