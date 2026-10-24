@@ -5,6 +5,7 @@ triggers verification pipelines, executes Python scripts, and handles Git synchr
 """
 
 from __future__ import annotations
+import json
 import os
 import sys
 import time
@@ -15,7 +16,8 @@ from .bus import EventBus, LockManager
 from .ci_tracker import CiTracker
 from .config import OrchestraConfig, load_config
 from .git_sync import GitEngine
-from .models import AgentEvent, EventType, OrchestraState
+from .models import AgentEvent, EventType, HandoffPayload, OrchestraState
+from .policy import should_ship
 from .runner import ScriptRunner
 from .watcher import FilesystemWatcher
 
@@ -38,6 +40,21 @@ class OrchestraDaemon:
         self.current_state = OrchestraState.IDLE_CLEAN
         self._watcher: Optional[FilesystemWatcher] = None
         self._running = False
+
+        self._cursor_file = self.orchestra_dir / "daemon_cursor.json"
+        self._cursor = self._load_cursor()
+
+    def _load_cursor(self) -> int:
+        """Resume where the last daemon stopped; a first run starts at the end so old handoffs never replay."""
+        try:
+            return int(json.loads(self._cursor_file.read_text(encoding="utf-8"))["offset"])
+        except Exception:
+            return self.bus.end_offset()
+
+    def _save_cursor(self) -> None:
+        tmp_file = self._cursor_file.with_suffix(".tmp")
+        tmp_file.write_text(json.dumps({"offset": self._cursor}), encoding="utf-8")
+        tmp_file.replace(self._cursor_file)
 
     def get_status(self) -> Dict[str, Any]:
         """Inspect the current full operational state."""
@@ -107,7 +124,12 @@ class OrchestraDaemon:
                         self.bus.emit(
                             event_type=EventType.HANDOFF_REQUEST,
                             source_agent=current.get("agent_id", "agent") if current else "agent",
-                            payload={"note": "Writer released via coordination file"},
+                            payload={
+                                "note": "Writer released via coordination file",
+                                # The file says the writer left, not that the work is finished.
+                                "status": "unknown",
+                                "released_lock": current,
+                            },
                         )
                 else:
                     # Writer is active
@@ -125,28 +147,70 @@ class OrchestraDaemon:
     def tick(self) -> Dict[str, Any]:
         """
         Execute a single evaluation pass of the state machine.
-        Checks locks, git tree, verification triggers, and synchronizations.
+        Consumes new bus events (handoffs may trigger the pipeline), then refreshes the reported state.
         """
-        git_stat = self.git.get_status() if self.git.is_git_repo() else None
-        lock = self.locks.get_current_lock()
-        is_locked = self.locks.is_locked()
+        events, new_offset = self.bus.read_from(self._cursor)
+        if new_offset != self._cursor:
+            # Advance before handling so a crash mid-pipeline never re-ships the same handoff.
+            self._cursor = new_offset
+            self._save_cursor()
+        for event in events:
+            self._handle_event(event)
 
-        # 1. WRITER_ACTIVE
-        if is_locked:
+        if self.locks.is_locked():
             self.current_state = OrchestraState.WRITER_ACTIVE
-            return self.get_status()
-
-        # 2. Check if git tree is dirty and writer is released -> READY_NEEDS_VERIFY
-        if git_stat and not git_stat.is_clean:
-            self.current_state = OrchestraState.READY_NEEDS_VERIFY
-            # Run verification pipeline if configured
-            if self.config.pipeline.verify_command:
-                self.run_handoff_pipeline()
-            return self.get_status()
-
-        # 3. Clean and idle
-        self.current_state = OrchestraState.IDLE_CLEAN
+        elif self.current_state in (OrchestraState.ERROR, OrchestraState.PAUSED_CHECKPOINT):
+            pass  # Held until the next writer claims
+        else:
+            # A dirty tree is only reported. Nothing ships without a handoff event.
+            git_stat = self.git.get_status() if self.git.is_git_repo() else None
+            dirty = git_stat is not None and not git_stat.is_clean
+            self.current_state = OrchestraState.READY_NEEDS_VERIFY if dirty else OrchestraState.IDLE_CLEAN
         return self.get_status()
+
+    def _handle_event(self, event: AgentEvent) -> None:
+        """React to one bus event. Only HANDOFF_REQUEST drives the pipeline."""
+        if event.event_type != EventType.HANDOFF_REQUEST:
+            return
+
+        handoff = HandoffPayload.from_dict(
+            {**event.payload, "agent_id": event.source_agent, "timestamp": event.timestamp}
+        )
+        released_lock = event.payload.get("released_lock")
+        if not isinstance(released_lock, dict):
+            released_lock = None
+
+        if not should_ship(handoff, released_lock):
+            if handoff.status == "paused":
+                self.current_state = OrchestraState.PAUSED_CHECKPOINT
+            self._emit_handoff_skipped(handoff, reason="policy")
+            return
+
+        # Hold the writer lock so no agent starts editing while we verify and commit.
+        if not self.locks.acquire(
+            task_id=handoff.task_id,
+            agent_id="orchestra",
+            scope="handoff pipeline",
+            lease_seconds=self.config.lock_lease_seconds,
+        ):
+            self._emit_handoff_skipped(handoff, reason="writer_active")
+            return
+        try:
+            self.run_handoff_pipeline()
+        finally:
+            self.locks.release(agent_id="orchestra")
+
+    def _emit_handoff_skipped(self, handoff: HandoffPayload, reason: str) -> None:
+        self.bus.emit(
+            event_type=EventType.CUSTOM_EVENT,
+            source_agent="orchestra",
+            payload={
+                "action": "handoff_skipped",
+                "reason": reason,
+                "task_id": handoff.task_id,
+                "status": handoff.status,
+            },
+        )
 
     def run_handoff_pipeline(self) -> bool:
         """
@@ -227,6 +291,7 @@ class OrchestraDaemon:
     def start(self, poll_interval: float = 3.0) -> None:
         """Start the background filesystem watcher and autonomous event loop."""
         self._running = True
+        self._save_cursor()  # Handoffs sent while this daemon is down are picked up on restart
         self._watcher = FilesystemWatcher(
             root_dir=self.root,
             watch_paths=self.config.watch_paths,

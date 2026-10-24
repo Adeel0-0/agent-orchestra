@@ -102,6 +102,7 @@ orchestra claim AUTH-001 --agent claude --scope "OAuth2 token rotation" --lease 
 - Emits an `AGENT_CLAIM` event on the IPC bus.
 - Creates `.orchestra/writer.lock`.
 - Other agents trying to claim will be blocked until the lease expires or is released.
+- Claims are atomic across processes: if several agents claim at once, exactly one wins.
 
 ### 2. Checking Current State
 Any agent or human can check the real-time status:
@@ -129,9 +130,10 @@ When an agent finishes implementation:
 ```bash
 orchestra release --agent claude --status complete --summary "Implemented JWT rotation and 12 unit tests"
 ```
-- Emits a `HANDOFF_REQUEST` event.
+- Emits a `HANDOFF_REQUEST` event carrying the status and the lock that was released.
 - Removes `.orchestra/writer.lock`.
-- Notifies the autonomous daemon to trigger the verification pipeline.
+- The daemon passes the handoff to `should_ship()` in `orchestra/policy.py`. Only handoffs it approves are verified, committed, and pushed.
+- `--status paused` and `--status failed` never ship. The daemon reports `PAUSED_CHECKPOINT` and leaves the work untouched.
 
 ### 4. Emitting Custom Events
 Agents can broadcast custom telemetry, review verdicts, or notifications:
@@ -193,10 +195,10 @@ orchestra start --interval 2.0
 ```
 The daemon will:
 1. Watch watched paths for file modifications.
-2. Detect task claims and handoffs in real-time.
-3. Automatically execute the verification pipeline when an agent completes a task.
+2. Read new `HANDOFF_REQUEST` events from `events.jsonl`, resuming from `.orchestra/daemon_cursor.json` after a restart. On its first start it skips existing history.
+3. Run the verification pipeline once per approved handoff, holding the writer lock as `orchestra` so no agent can start editing mid-pipeline. A dirty tree with no handoff is only reported, never committed.
 4. Auto-commit, rebase, and fast-forward secondary branches when verification passes.
-5. Publish all lifecycle events to `events.jsonl`.
+5. Publish all lifecycle events to `events.jsonl`, including `CUSTOM_EVENT` with `"action": "handoff_skipped"` when a handoff is not shipped.
 
 ---
 
@@ -230,7 +232,7 @@ To use this in other projects (`Outcome Verifier`, `campus360-api`, etc.):
 cd agent-orchestra
 python -m unittest discover tests
 ```
-All 10 tests run in ~1.2s covering models, event serialization, single-writer locking, script timeouts, and configuration.
+The 23 tests take about 15s. They cover models, event serialization, single-writer locking (including a multi-process claim race), the handoff-driven pipeline on throwaway git repos, the shipping policy, script timeouts, and configuration.
 
 ---
 
