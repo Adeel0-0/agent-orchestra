@@ -250,13 +250,26 @@ To use this in other projects (`Outcome Verifier`, `campus360-api`, etc.):
 
 ---
 
+## OpenRouter terminal agent
+
+See [docs/OPENROUTER.md](docs/OPENROUTER.md) for keyring setup, tool-capable models,
+permissions and verification. Start with `python -m pip install -e ".[openrouter]"`,
+then `python -m orchestra openrouter-key`, `python -m orchestra models` and
+`python -m orchestra chat -a openrouter -m <model-id>` in an interactive terminal.
+
+## Local API and sessions
+
+The Phase 3 [local API](docs/LOCAL-API.md) provides durable sessions and protected
+HTTP/WebSocket access. Install `.[app]` and run `python -m orchestra serve`; it prints
+a random loopback URL and private launch token. The window/UI is still Phase 4.
+
 ## 🧪 Running Unit Tests
 
 ```bash
 cd agent-orchestra
 python -m unittest discover tests
 ```
-The 60 tests take about 35s. They cover models, event serialization, single-writer locking (including a multi-process claim race), the handoff-driven pipeline and git sync on throwaway repos with a bare remote, the shipping policy, script timeouts (including killing child processes), strict configuration, the `python -m orchestra` entry point, and the agent players: event translation against recorded Codex and Claude output, the process runner, and cancelling a turn.
+The suite covers models, event serialization, single-writer locking (including a multi-process claim race), the handoff-driven pipeline and git sync on throwaway repos with a bare remote, the shipping policy, script timeouts, strict configuration, entry points, recorded Codex/Claude event translation and cancellation. OpenRouter tests add confined file tools, approval/denial, shell timeout/output limits, SSE parsing and local HTTP streaming, context summaries and usage accounting. Tests do not use real API credentials or credits.
 
 ---
 

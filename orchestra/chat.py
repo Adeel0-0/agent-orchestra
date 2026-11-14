@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Dict, Optional, TextIO
 
 from .players import base
-from .players.base import CliPlayer, Event
+from .players.base import Player, Event
 from .players.registry import check, get_player
 
 
@@ -82,6 +82,8 @@ class Renderer:
             self._line(self._c("33", f"  ~ {d.get('path')} ({d.get('kind')})"))
         elif evt.type == base.NOTICE:
             self._line(self._c("33", f"  ! {d.get('message')}"))
+        elif evt.type == base.PERMISSION_REQUESTED:
+            self._line(f"  ? {d.get('tool')}: {json.dumps(d.get('input'), ensure_ascii=False)}")
         elif evt.type == base.ERROR:
             self._line(self._c("31", f"error: {d.get('message')}"))
             if d.get("kind") == "auth" and self.login_hint:
@@ -92,26 +94,44 @@ class Renderer:
             parts = []
             if self.usage:
                 parts.append(f"{self.usage.get('input_tokens', 0)} in / {self.usage.get('output_tokens', 0)} out tokens")
+                if self.usage.get('cost_usd') is not None:
+                    parts.append(f"${self.usage['cost_usd']:.6f}")
             if d.get("stop_reason") not in (None, "end_turn"):
                 parts.append(str(d["stop_reason"]))
             self._line(self._c("2", f"[{', '.join(parts)}]") if parts else "")
             self.usage = {}
 
 
-async def run_turn(player: CliPlayer, prompt: str, renderer: Optional[Renderer], as_json: bool) -> bool:
+def ask_permission() -> bool:
+    """Non-interactive input always denies. Only an explicit yes grants an action."""
+    if not sys.stdin.isatty():
+        return False
+    try:
+        return input('Allow this action? [y/N] ').strip().lower() in {'y', 'yes'}
+    except EOFError:
+        return False
+
+
+async def run_turn(player: Player, prompt: str, renderer: Optional[Renderer], as_json: bool) -> bool:
     """Run one turn. Returns True when it completed without an error event."""
     ok = True
-    async for evt in player.send(prompt):
-        if evt.type == base.ERROR:
-            ok = False
-        if as_json:
-            print(json.dumps(evt.to_dict(), ensure_ascii=False), flush=True)
-        elif renderer:
-            renderer.show(evt)
+    stream = player.send(prompt)
+    try:
+        async for evt in stream:
+            if evt.type == base.ERROR:
+                ok = False
+            if as_json:
+                print(json.dumps(evt.to_dict(), ensure_ascii=False), flush=True)
+            elif renderer:
+                renderer.show(evt)
+            if evt.type == base.PERMISSION_REQUESTED:
+                await player.answer_permission(evt.data['request_id'], False if as_json else ask_permission())
+    finally:
+        await stream.aclose()
     return ok
 
 
-def _turn(player: CliPlayer, prompt: str, renderer: Optional[Renderer], as_json: bool) -> Optional[bool]:
+def _turn(player: Player, prompt: str, renderer: Optional[Renderer], as_json: bool) -> Optional[bool]:
     """Run a turn in its own event loop. Returns None if the user pressed Ctrl+C."""
     try:
         return asyncio.run(run_turn(player, prompt, renderer, as_json))
@@ -132,6 +152,8 @@ def chat(
     as_json: bool = False,
 ) -> int:
     player_cls = get_player(agent)
+    # Validate model, resume and project before health checks, with actionable errors.
+    player = player_cls(cwd=cwd, model=model, permission=permission, session_id=resume)
     health = check(player_cls)
     if not health.ready:
         print(f"{player_cls.display_name} is not ready: {'not installed' if not health.path else 'not logged in'}.",
@@ -139,7 +161,6 @@ def chat(
         print(f"  fix: {health.fix}", file=sys.stderr)
         return 2
 
-    player = player_cls(cwd=cwd, model=model, permission=permission, session_id=resume)
     renderer = None if as_json else Renderer(login_hint=player_cls.login_hint)
 
     if prompt is not None:

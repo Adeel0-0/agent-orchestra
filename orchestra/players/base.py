@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional, Sequence, Tuple
+from typing import Any, AsyncIterator, Dict, List, Optional, Protocol, Sequence, Tuple
 
 from .process import ChildProcess, ProcessError
 
@@ -28,6 +28,7 @@ REASONING_DELTA = "reasoning.delta"   # text
 TOOL_STARTED = "tool.started"         # id, name, input
 TOOL_OUTPUT = "tool.output"           # id, chunk
 TOOL_FINISHED = "tool.finished"       # id, ok
+PERMISSION_REQUESTED = "permission.requested"  # request_id, tool, input, reason
 FILE_CHANGED = "file.changed"         # path, kind
 USAGE = "usage"                       # input_tokens, output_tokens, cost_usd
 NOTICE = "notice"                     # message (warnings that do not stop the turn)
@@ -44,6 +45,16 @@ class Event:
 
     def to_dict(self) -> Dict[str, Any]:
         return {"type": self.type, **self.data}
+
+
+class Player(Protocol):
+    """The constructor/start convention is local; every turn uses this event stream."""
+    id: str
+    session_id: Optional[str]
+
+    def send(self, prompt: str) -> AsyncIterator[Event]: ...
+    async def cancel(self) -> None: ...
+    async def answer_permission(self, request_id: str, allow: bool) -> None: ...
 
 
 def classify_error(message: str) -> Tuple[str, bool]:
@@ -204,3 +215,6 @@ class CliPlayer:
     async def cancel(self) -> None:
         if self._child:
             await self._child.kill()
+
+    async def answer_permission(self, request_id: str, allow: bool) -> None:
+        raise ValueError('This CLI backend does not support live permission requests.')
