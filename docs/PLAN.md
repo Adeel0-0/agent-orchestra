@@ -1,6 +1,6 @@
 # Agent Orchestra → a simple, self-owned coding-agent app
 
-Status: Phase 0 implemented and tested (uncommitted), except the streaming runner, which moved to Phase 1 step 1. Phases 1 to 7 not started. Written 2026-11-14 on branch `claude/wonderful-wilson-2b14a9` (base `303bc85`).
+Status: Phase 0 committed (`4eba3d9`). Phase 1 implemented and tested for Codex and Claude; the Antigravity player is written from the official docs but not yet run, because `agy` is not installed. Phases 2 to 7 not started. Written 2026-11-14 on branch `claude/wonderful-wilson-2b14a9` (base `303bc85`).
 
 ## 1. The goal in one paragraph
 

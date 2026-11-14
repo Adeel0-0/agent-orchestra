@@ -171,6 +171,56 @@ def cmd_reset(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    from .players.registry import check_all
+
+    results = check_all()
+    if args.json:
+        print(json.dumps([{**r.__dict__, "ready": r.ready} for r in results], indent=2))
+        return 0 if any(r.ready for r in results) else 1
+
+    for r in results:
+        if not r.path:
+            state = "not installed"
+        elif r.logged_in is False:
+            state = "not logged in"
+        elif r.logged_in is None:
+            state = "installed (login not checkable; run it once to sign in)"
+        else:
+            state = "ready"
+        print(f"{r.name:<30} {state}")
+        if r.version:
+            print(f"{'':<30} {r.version}")
+        if r.fix:
+            print(f"{'':<30} fix: {r.fix}")
+    return 0 if any(r.ready for r in results) else 1
+
+
+def cmd_chat(args: argparse.Namespace) -> int:
+    from .chat import chat
+
+    cwd = Path(args.cwd).resolve()
+    if not cwd.is_dir():
+        print(f"[FAILED] Not a folder: {cwd}", file=sys.stderr)
+        return 2
+    prompt = " ".join(args.prompt) if args.prompt else None
+    if prompt == "-":
+        prompt = sys.stdin.read()
+    try:
+        return chat(
+            agent=args.agent,
+            prompt=prompt,
+            cwd=cwd,
+            model=args.model,
+            permission=args.permission,
+            resume=args.resume,
+            as_json=args.json,
+        )
+    except KeyError as exc:
+        print(f"[FAILED] {exc.args[0]}", file=sys.stderr)
+        return 2
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     cfg = OrchestraConfig()
     target = Path("orchestra.json")
@@ -242,6 +292,23 @@ def main(argv: Optional[list[str]] = None) -> int:
     # reset
     p_reset = subparsers.add_parser("reset", help="Clear a held ERROR state and any pending handoff")
     p_reset.set_defaults(func=cmd_reset)
+
+    # doctor
+    p_doctor = subparsers.add_parser("doctor", help="Check which agent CLIs are installed and logged in")
+    p_doctor.add_argument("--json", action="store_true", help="Output as JSON")
+    p_doctor.set_defaults(func=cmd_doctor)
+
+    # chat
+    p_chat = subparsers.add_parser("chat", help="Chat with an agent in a project folder")
+    p_chat.add_argument("prompt", nargs="*", help="One prompt to run and exit ('-' reads stdin). Omit for a conversation")
+    p_chat.add_argument("--agent", "-a", default="codex", help="codex, antigravity or claude (default: codex)")
+    p_chat.add_argument("--model", "-m", default=None, help="Model name for that agent")
+    p_chat.add_argument("--permission", "-p", default="edit", choices=["read-only", "edit", "full"],
+                        help="read-only: no changes; edit: change files in the project (default); full: no limits")
+    p_chat.add_argument("--cwd", "-C", default=".", help="Project folder (default: current folder)")
+    p_chat.add_argument("--resume", "-r", default=None, help="Continue a previous session by id")
+    p_chat.add_argument("--json", action="store_true", help="Print normalized events as JSON lines")
+    p_chat.set_defaults(func=cmd_chat)
 
     # Windows consoles default to a legacy code page; force UTF-8 output.
     for stream in (sys.stdout, sys.stderr):

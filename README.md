@@ -90,6 +90,27 @@ This generates an `orchestra.json` configuration in your root directory.
 
 ---
 
+## 💬 Chat with an Agent from the Terminal
+
+Orchestra drives the official agent CLIs with your existing logins, so ChatGPT Plus or Google AI Pro subscriptions are used directly, with no API keys.
+
+```bash
+orchestra doctor                      # which agents are installed and logged in
+orchestra chat "explain this repo"    # one turn with Codex (ChatGPT) in the current folder
+orchestra chat -a claude -C ../app    # a conversation with Claude Code in another folder
+orchestra chat -r <session-id> "and now add tests"   # continue a previous session
+```
+
+| Agent (`-a`) | Account | Needs |
+|---|---|---|
+| `codex` (default) | ChatGPT Plus / Pro | `npm install -g @openai/codex`, then `codex login` |
+| `antigravity` | Google AI Pro / Ultra | Antigravity CLI (`agy`), signed in once interactively |
+| `claude` | Claude Pro / Max | Claude Code, signed in |
+
+`-p` sets what the agent may do: `read-only`, `edit` (default, changes files inside the project) or `full` (no limits). `--json` prints the normalized event stream instead of formatted text. Ctrl+C stops the current turn and the agent's processes.
+
+---
+
 ## 🛠️ How Agents Communicate
 
 Agents interact with the Orchestra using simple CLI commands or the Python API:

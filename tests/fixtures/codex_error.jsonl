@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"01a1d9a9-bef6-75b2-a93f-e83cefd55d95"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Model metadata for `no-such-model-xyz` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+{"type":"turn.started"}
+{"type":"error","message":"The 'no-such-model-xyz' model is not supported when using Codex with a ChatGPT account."}
+{"type":"turn.failed","error":{"message":"The 'no-such-model-xyz' model is not supported when using Codex with a ChatGPT account."}}
