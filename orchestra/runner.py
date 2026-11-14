@@ -73,6 +73,7 @@ class ScriptRunner:
                 cwd=str(working_dir),
                 env=run_env,
                 shell=shell,
+                stdin=subprocess.DEVNULL,  # a child that prompts must fail, not hang
                 capture_output=True,
                 text=True,
                 encoding="utf-8",

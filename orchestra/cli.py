@@ -48,6 +48,8 @@ def cmd_status(args: argparse.Namespace) -> int:
     if status.get("latest_event"):
         e = status["latest_event"]
         print(f"Latest Event: {e.get('event_type')} by {e.get('source_agent')}")
+    if status.get("last_error"):
+        print(f"Last Error:   {status['last_error']}")
     return 0
 
 
@@ -162,6 +164,13 @@ def cmd_start(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_reset(args: argparse.Namespace) -> int:
+    daemon = OrchestraDaemon(load_config())
+    daemon.reset()
+    print("[OK] Orchestra state reset.")
+    return 0
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     cfg = OrchestraConfig()
     target = Path("orchestra.json")
@@ -230,14 +239,21 @@ def main(argv: Optional[list[str]] = None) -> int:
     p_init.add_argument("--force", action="store_true", help="Overwrite existing configuration")
     p_init.set_defaults(func=cmd_init)
 
+    # reset
+    p_reset = subparsers.add_parser("reset", help="Clear a held ERROR state and any pending handoff")
+    p_reset.set_defaults(func=cmd_reset)
+
+    # Windows consoles default to a legacy code page; force UTF-8 output.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except Exception:
+                pass
+
     parsed = parser.parse_args(argv)
     return parsed.func(parsed)
 
 
-if hasattr(sys.stdout, "reconfigure"):
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-        sys.stderr.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
+if __name__ == "__main__":
     sys.exit(main())

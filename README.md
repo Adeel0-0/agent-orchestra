@@ -194,9 +194,10 @@ orchestra start --interval 2.0
 The daemon will:
 1. Watch watched paths for file modifications.
 2. Detect task claims and handoffs in real-time.
-3. Automatically execute the verification pipeline when an agent completes a task.
-4. Auto-commit, rebase, and fast-forward secondary branches when verification passes.
-5. Publish all lifecycle events to `events.jsonl`.
+3. Run the verification pipeline once for each `orchestra release --status complete`. A dirty working tree alone never triggers it, and `paused` or `failed` handoffs are left alone.
+4. Auto-commit when verification passes. Rebase, push and fast-forward of secondary branches happen only with `"auto_push": true` (off by default) and only from the main branch.
+5. Hold an `ERROR` state when verification or git sync fails, until the next handoff or `orchestra reset`.
+6. Publish all lifecycle events to `events.jsonl` (rotated to `events.1.jsonl` at 5 MB).
 
 ---
 
@@ -230,7 +231,7 @@ To use this in other projects (`Outcome Verifier`, `campus360-api`, etc.):
 cd agent-orchestra
 python -m unittest discover tests
 ```
-All 10 tests run in ~1.2s covering models, event serialization, single-writer locking, script timeouts, and configuration.
+All 25 tests run in about 5s covering models, event serialization, single-writer locking (including simultaneous claims), event log tailing and rotation, the handoff-triggered pipeline, script timeouts, and configuration.
 
 ---
 

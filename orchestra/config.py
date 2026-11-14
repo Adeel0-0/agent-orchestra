@@ -6,9 +6,17 @@ Supports loading from JSON and YAML with automatic discovery and sensible defaul
 from __future__ import annotations
 import json
 import os
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, fields
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+def _build(cls, data: Any):
+    """Build a config section, ignoring keys this version does not know."""
+    if not isinstance(data, dict):
+        return cls()
+    known = {f.name for f in fields(cls)}
+    return cls(**{k: v for k, v in data.items() if k in known})
 
 
 @dataclass
@@ -18,7 +26,7 @@ class GitSyncConfig:
     sync_branches: List[str] = field(default_factory=list)
     remote: str = "origin"
     auto_commit: bool = True
-    auto_push: bool = True
+    auto_push: bool = False  # pushing is opt-in
     commit_prefix: str = "chore(orchestra):"
 
 
@@ -86,9 +94,9 @@ class OrchestraConfig:
             ignore_patterns=list(data.get("ignore_patterns", [])),
             debounce_ms=int(data.get("debounce_ms", 400)),
             lock_lease_seconds=int(data.get("lock_lease_seconds", 1800)),
-            git=GitSyncConfig(**git_data) if isinstance(git_data, dict) else GitSyncConfig(),
-            ci=CiConfig(**ci_data) if isinstance(ci_data, dict) else CiConfig(),
-            pipeline=PipelineConfig(**pipeline_data) if isinstance(pipeline_data, dict) else PipelineConfig(),
+            git=_build(GitSyncConfig, git_data),
+            ci=_build(CiConfig, ci_data),
+            pipeline=_build(PipelineConfig, pipeline_data),
         )
 
 

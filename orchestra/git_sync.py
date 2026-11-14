@@ -71,27 +71,22 @@ class GitEngine:
         res = self.runner.run_command(["git", "push", remote, branch], shell=False)
         return res.success
 
+    def abort_rebase(self) -> bool:
+        res = self.runner.run_command(["git", "rebase", "--abort"], shell=False)
+        return res.success
+
     def fast_forward_branch(self, target_branch: str, source_branch: str = "main", remote: str = "origin") -> bool:
         """
-        Fast-forward target_branch to source_branch and push to remote.
-        Restores the original branch when complete.
+        Fast-forward target_branch to source_branch and push it to remote.
+        Never checks out another branch: agents may be editing the working tree.
         """
-        status = self.get_status()
-        orig_branch = status.branch
-
-        # Switch to target
-        res1 = self.runner.run_command(["git", "checkout", target_branch], shell=False)
-        if not res1.success:
+        if target_branch == self.get_status().branch:
+            res = self.runner.run_command(["git", "merge", source_branch, "--ff-only"], shell=False)
+        else:
+            # Updates the local ref only, and refuses anything that is not a fast-forward.
+            res = self.runner.run_command(
+                ["git", "fetch", ".", f"{source_branch}:{target_branch}"], shell=False
+            )
+        if not res.success:
             return False
-
-        # Fast forward merge
-        res2 = self.runner.run_command(["git", "merge", source_branch, "--ff-only"], shell=False)
-
-        # Push to remote if ff succeeded
-        if res2.success:
-            self.runner.run_command(["git", "push", remote, target_branch], shell=False)
-
-        # Switch back to original branch
-        self.runner.run_command(["git", "checkout", orig_branch], shell=False)
-        return res2.success
-
+        return self.push(remote, target_branch)
