@@ -10,6 +10,10 @@ OUTPUT_LIMIT = 16000
 FILE_LIMIT = 1024 * 1024
 
 
+class ScanLimitReached(Exception):
+    pass
+
+
 def bounded(text: str, limit: int = OUTPUT_LIMIT) -> str:
     return text if len(text) <= limit else text[:limit] + '\n[output truncated]'
 
@@ -37,12 +41,13 @@ def glob_matches(path: Path, pattern: str) -> bool:
 
 
 class FileTools:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, scan_limit=10000):
         self.root = Path(root).resolve(strict=True)
         if not self.root.is_dir():
             raise ValueError('Project root must be a directory')
+        self.scan_limit = scan_limit
 
-    def resolve(self, path: str) -> Path:
+    def resolve(self, path: str, *, write=False) -> Path:
         if not isinstance(path, str) or not path or '\x00' in path:
             raise ValueError('path must be a non-empty string')
         target = (self.root / path).resolve()
@@ -53,6 +58,13 @@ class FileTools:
             raise ValueError('Device paths and alternate streams are not supported')
         if os.name == 'nt' and any(PureWindowsPath(part).is_reserved() for part in target.parts[1:]):
             raise ValueError('Reserved Windows path')
+        if write:
+            # Check both lexical and resolved paths, including junction/symlink aliases.
+            for candidate in (self.root / path, target):
+                if any(part.rstrip(' .').casefold() in {'.git', '.orchestra'} for part in candidate.parts):
+                    raise ValueError('Writes to .git and .orchestra metadata are forbidden')
+            if target.is_file() and target.stat().st_nlink > 1:
+                raise ValueError('Writes to hardlinked files are forbidden; the target may alias protected metadata')
         return target
 
     def read(self, path: Path) -> str:
@@ -74,8 +86,8 @@ class FileTools:
                              and (Path(directory) / d).resolve().is_relative_to(self.root))
             for name in sorted(files):
                 scanned += 1
-                if scanned > 10000:
-                    return
+                if scanned > self.scan_limit:
+                    raise ScanLimitReached
                 p = Path(directory) / name
                 if not p.is_symlink() and p.resolve().is_relative_to(self.root):
                     yield p
@@ -83,9 +95,26 @@ class FileTools:
     def execute(self, name: str, args: dict) -> ToolResult:
         if name not in {'read_file', 'list_dir', 'glob', 'grep', 'write_file', 'edit_file'}:
             raise ValueError(f'Unknown tool: {name}')
-        path = self.resolve(string_arg(args, 'path', '.'))
+        path = self.resolve(string_arg(args, 'path', '.'), write=name in {'write_file', 'edit_file'})
         if name == 'read_file':
-            return ToolResult(bounded(self.read(path)))
+            text = self.read(path)
+            offset, limit = args.get('offset', 0), args.get('limit', 200)
+            if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 2000:
+                raise ValueError('offset must be a non-negative line index; limit must be 1 to 2000 lines')
+            lines = text.splitlines(keepends=True)
+            selected, size, end = [], 0, min(offset, len(lines))
+            for line in lines[offset:offset + limit]:
+                if size + len(line) > OUTPUT_LIMIT - 200:
+                    if not selected:
+                        return ToolResult(bounded(line, OUTPUT_LIMIT - 200) + f'\n[line {offset + 1} exceeds output cap; use an approved command to inspect the long line]')
+                    break
+                selected.append(line)
+                size += len(line)
+                end += 1
+            if 'offset' not in args and 'limit' not in args and end == len(lines):
+                return ToolResult(text)
+            footer = f'\n[lines {offset + 1 if selected else end}-{end} of {len(lines)}; {len(lines) - end} lines remain; next offset: {end}]'
+            return ToolResult(''.join(selected) + footer)
         if name == 'list_dir':
             entries = []
             with os.scandir(path) as scan:
@@ -100,7 +129,15 @@ class FileTools:
             if name == 'glob' and (Path(pattern).is_absolute() or '..' in Path(pattern).parts):
                 raise ValueError('glob pattern must stay inside the project')
             lines, size = [], 0
-            for p in ([path] if path.is_file() else self.files(path)):
+            def safe_files():
+                try:
+                    yield from ([path] if path.is_file() else self.files(path))
+                except ScanLimitReached:
+                    yield None
+            for p in safe_files():
+                if p is None:
+                    lines.append(f'[scan truncated after {self.scan_limit} files; narrow the search path]')
+                    break
                 rel = p.relative_to(self.root).as_posix()
                 if name == 'glob':
                     matches = [rel] if glob_matches(p.relative_to(path), pattern) else []

@@ -37,7 +37,8 @@ class ScriptedClient:
         self.cancelled = False
 
     async def models(self):
-        return [{'id': 'test/tools', 'context_length': self.context, 'supported_parameters': ['tools']}]
+        return [{'id': 'test/tools', 'context_length': self.context, 'supported_parameters': ['tools'],
+                 'top_provider': {'max_completion_tokens': 8192}}]
 
     async def stream(self, body):
         self.requests.append(copy.deepcopy(body))
@@ -143,13 +144,65 @@ class LoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(str(self.root), system)
 
     async def test_old_turns_summarized_without_breaking_tool_groups(self):
-        client = ScriptedClient(text('a' * 6000), text('summary of older work'), text('next'), context=12000)
+        client = ScriptedClient(text('a' * 36000), text('summary of older work'), text('next'), context=12000)
         player = self.player(client)
         _ = [e async for e in player.send('first')]
         events = [e async for e in player.send('second')]
         self.assertEqual(len(client.requests), 3)
         self.assertNotIn('tools', client.requests[1])
         self.assertIn('summary of older work', json.dumps(client.requests[2]['messages']))
+        self.assertTrue(any(e.type == base.NOTICE for e in events))
+
+    async def test_catalog_output_limit_is_used_instead_of_2048(self):
+        client = ScriptedClient(text())
+        _ = [e async for e in self.player(client).send('write a full module')]
+        self.assertEqual(client.requests[0]['max_tokens'], 8192)
+
+    async def test_summary_also_respects_small_model_output_ceiling(self):
+        client = ScriptedClient(text('a' * 36000), text('summary'), text('continued'), context=12000)
+        async def small_model():
+            return [{'id': 'test/tools', 'context_length': 12000, 'top_provider': {'max_completion_tokens': 256}}]
+        client.models = small_model
+        player = self.player(client)
+        _ = [e async for e in player.send('first')]
+        _ = [e async for e in player.send('continue')]
+        self.assertEqual(client.requests[1]['max_tokens'], 256)
+
+    async def test_length_recovery_discards_partial_tools_then_accepts_smaller_write(self):
+        truncated = calls(('write_file', {'path': 'partial.txt', 'content': 'never write'}))
+        truncated[-1]['choices'][0]['finish_reason'] = 'length'
+        client = ScriptedClient(truncated, calls(('write_file', {'path': 'safe.txt', 'content': 'small'})), text())
+        events = [e async for e in self.player(client).send('write')]
+        self.assertFalse((self.root / 'partial.txt').exists())
+        self.assertEqual((self.root / 'safe.txt').read_text(), 'small')
+        self.assertEqual(events[-1].data['stop_reason'], 'end_turn')
+        self.assertIn('split', client.requests[1]['messages'][-1]['content'].lower())
+        self.assertFalse(any(m.get('tool_calls') for m in client.requests[1]['messages']))
+
+    async def test_large_instruction_files_fit_fresh_32k_context(self):
+        for name in ('AGENTS.md', 'CLAUDE.md'):
+            (self.root / name).write_text('Use ordinary project rules. ' * 600, encoding='utf-8')
+        client = ScriptedClient(text(), context=32000)
+        events = [e async for e in self.player(client).send('hello')]
+        self.assertEqual(events[-1].data['stop_reason'], 'end_turn')
+        self.assertEqual(len(client.requests), 1)
+
+    async def test_context_estimate_uses_reported_prompt_tokens(self):
+        client = ScriptedClient(text('ok', {'prompt_tokens': 20000}), text('summary'), text('continued'), context=24000)
+        player = self.player(client)
+        _ = [e async for e in player.send('start')]
+        events = [e async for e in player.send('continue')]
+        self.assertEqual(len(client.requests), 3)
+        self.assertTrue(any(e.type == base.NOTICE for e in events))
+
+    async def test_prompt_measurement_survives_player_eviction_and_restore(self):
+        original = self.player(ScriptedClient(text('ok', {'prompt_tokens': 20000}), context=24000))
+        _ = [e async for e in original.send('start')]
+        resumed_client = ScriptedClient(text('summary'), text('continued'), context=24000)
+        resumed = self.player(resumed_client)
+        resumed.restore_state(original.snapshot_state())
+        events = [e async for e in resumed.send('continue')]
+        self.assertEqual(len(resumed_client.requests), 2)
         self.assertTrue(any(e.type == base.NOTICE for e in events))
 
     async def test_cancel_pending_permission_preserves_valid_followup_history(self):
@@ -177,7 +230,7 @@ class LoopTests(unittest.IsolatedAsyncioTestCase):
         original = self.player(client)
         _ = [e async for e in original.send('remember this')]
         snapshot = json.loads(json.dumps(original.snapshot_state()))
-        self.assertEqual(set(snapshot), {'history', 'totals', 'context_length'})
+        self.assertEqual(set(snapshot), {'history', 'totals', 'context_length', 'prompt_measurement'})
         resumed_client = ScriptedClient(text('continued'))
         resumed = self.player(resumed_client)
         resumed.restore_state(snapshot)

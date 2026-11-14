@@ -116,6 +116,30 @@ class SessionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.store.session(self.sid)['status'], 'error')
         self.assertEqual(self.store.events(self.sid)[-1]['stop_reason'], 'error')
 
+    async def test_completed_player_is_evicted_and_reconstructed_for_next_turn(self):
+        self.player.proceed.set()
+        self.manager.start(self.sid, 'first')
+        await self.manager.wait(self.sid)
+        self.assertNotIn(self.sid, self.manager._players)
+        self.manager.start(self.sid, 'second')
+        await self.manager.wait(self.sid)
+        self.assertEqual(len(self.constructed), 2)
+        self.assertEqual(self.player.history, ['first', 'second'])
+
+    async def test_unchanged_history_does_not_snapshot_each_text_delta(self):
+        calls = []
+        snapshot = self.player.snapshot_state
+        def tracked_snapshot():
+            calls.append(True)
+            return snapshot()
+        self.player.snapshot_state = tracked_snapshot
+        self.player.snapshot_revision = lambda: tuple(self.player.history)
+        self.manager.start(self.sid, 'stream')
+        await self.player.started.wait()
+        for _ in range(10):
+            self.manager.publish(self.sid, {'type': 'text.delta', 'text': 'x'})
+        self.assertLessEqual(len(calls), 2)
+
     async def test_cleanup_failure_blocks_project_until_explicit_confirmation(self):
         from orchestra.app.sessions import Conflict
         async def failed_cleanup():

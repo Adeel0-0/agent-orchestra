@@ -74,6 +74,14 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         result = await self.client.post('/api/projects', json={'path': 'x' * 1100000})
         self.assertEqual(result.status_code, 413)
 
+    async def test_unexpected_handler_keyerror_is_server_error(self):
+        from unittest.mock import patch
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app, raise_app_exceptions=False),
+            base_url=f'http://127.0.0.1:{PORT}', headers={'Authorization': 'Bearer ' + TOKEN}) as client:
+            with patch.object(self.app.state.manager, 'start', side_effect=KeyError('implementation defect')):
+                result = await client.post('/api/sessions/anything/messages', json={'prompt': 'hi'})
+            self.assertEqual(result.status_code, 500)
+
     async def test_git_diff_drains_large_output_and_reports_explicit_cap(self):
         from orchestra.app.server import git_read
         def git(*args):

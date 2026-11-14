@@ -16,3 +16,12 @@ TOOLS = [
     _tool('edit_file', 'Replace exactly one non-empty matching string; fails without changing ambiguous matches.', {'path': 'Project-relative path', 'old': 'Exact unique text', 'new': 'Replacement text'}, ['path', 'old', 'new']),
     _tool('run_command', 'Run a shell command in the project with a 30-second timeout and output cap. Normal OS access; no sandbox.', {'command': 'PowerShell on Windows, /bin/sh elsewhere'}, ['command']),
 ]
+
+# Numeric tool inputs must stay numeric through the API schema and approval card.
+TOOLS[0]['function']['parameters']['properties'].update({
+    'offset': {'type': 'integer', 'minimum': 0, 'description': 'Zero-based starting line index (default 0)'},
+    'limit': {'type': 'integer', 'minimum': 1, 'maximum': 2000, 'description': 'Maximum lines to read (default 200); output reports next offset and remaining lines'},
+})
+TOOLS[-1]['function']['parameters']['properties']['timeout'] = {
+    'type': 'number', 'exclusiveMinimum': 0, 'maximum': 600, 'description': 'Command deadline in seconds, default 30, maximum 600'}
+TOOLS[-1]['function']['description'] = 'Run an approved shell command in the project; timeout up to 600 seconds, capped output. Secret-suffix environment variables are removed. Normal OS access; no sandbox.'

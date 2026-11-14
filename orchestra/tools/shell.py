@@ -41,13 +41,13 @@ class ShellTool:
             pass
         await self.proc.wait()
 
-    async def stream(self, command: str):
+    async def stream(self, command: str, timeout=None):
         """Yield bounded live text chunks, then one ToolResult for model history."""
         items = asyncio.Queue(maxsize=16)
 
         async def execute():
             try:
-                result = await self.run(command, on_output=items.put)
+                result = await self.run(command, on_output=items.put, timeout=timeout)
             except Exception as exc:
                 await items.put(exc)
             else:
@@ -67,11 +67,16 @@ class ShellTool:
                 task.cancel()
             await asyncio.gather(task, return_exceptions=True)
 
-    async def run(self, command: str, on_output=None) -> ToolResult:
+    async def run(self, command: str, on_output=None, timeout=None) -> ToolResult:
         if not isinstance(command, str) or not command.strip():
             raise ValueError('command must be a non-empty string')
         if len(command.encode('utf-8')) > 128 * 1024:
             raise ValueError('Command exceeds 128 KiB limit')
+        deadline = self.timeout if timeout is None else timeout
+        if isinstance(deadline, bool) or not isinstance(deadline, (int, float)) or not 0 < deadline <= 600:
+            raise ValueError('timeout must be greater than zero and at most 600 seconds')
+        env = {k: v for k, v in os.environ.items() if not k.upper().endswith(('_KEY', '_TOKEN', '_SECRET'))}
+        env['PYTHONIOENCODING'] = 'utf-8'
         # Windows venv python.exe is a redirector which may spawn the interpreter
         # before job assignment. The stdlib-only bootstrap must use the real base
         # interpreter so the process blocked on stdin is the process we own.
@@ -105,14 +110,14 @@ class ShellTool:
                 self._job = WindowsJob()
             self.proc = await asyncio.create_subprocess_exec(
                 *argv, cwd=self.root, stdin=asyncio.subprocess.PIPE if os.name == 'nt' else asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, **kwargs)
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env=env, **kwargs)
             if self._job is not None:
                 self._job.assign(self.proc.pid)
                 self.proc.stdin.write((json.dumps(command) + '\n').encode('utf-8'))
                 await self.proc.stdin.drain()
                 self.proc.stdin.close()
             try:
-                await asyncio.wait_for(consume(), timeout=self.timeout)
+                await asyncio.wait_for(consume(), timeout=deadline)
             except asyncio.TimeoutError:
                 timed_out = True
             text = output.decode('utf-8', errors='replace')
@@ -125,9 +130,9 @@ class ShellTool:
                 if on_output:
                     await on_output('\n[output truncated]')
             if timed_out:
-                text += f'\n[command timed out after {self.timeout}s]'
+                text += f'\n[command timed out after {deadline}s]'
                 if on_output:
-                    await on_output(f'\n[command timed out after {self.timeout}s]')
+                    await on_output(f'\n[command timed out after {deadline}s]')
             return ToolResult(text, ok=not timed_out and self.proc.returncode == 0)
         finally:
             await self.cancel()

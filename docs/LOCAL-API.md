@@ -33,9 +33,11 @@ are rejected. An omitted Origin is allowed for native clients with the token.
 Browser requests must use the exact local HTTP Origin. There is no permissive CORS.
 
 JSON requests require `Content-Type: application/json` and are limited to 1 MiB.
-Validation, missing resource and conflicting turn/recovery errors return JSON with
+Explicit validation, missing resource and conflicting turn/recovery errors return JSON with
 400, 404 and 409 respectively; oversized bodies return 413. Successful message
 submission returns 202 immediately; the turn belongs to the session manager.
+Unexpected implementation exceptions remain server errors instead of being
+misclassified as client mistakes.
 
 | Method | Path | Body/result |
 |---|---|---|
@@ -84,7 +86,9 @@ Default files are under `~/.orchestra/`:
 - `orchestra.db`: projects, sessions, settings, authoritative event journal and
   atomic player-state snapshots.
 - `sessions/<id>.jsonl`: readable transcript mirrors, repaired from the journal on
-  startup if a prior write was interrupted.
+startup if missing or the byte length disagrees with the durable journal. Complete
+same-size mirrors are not rewritten; this lightweight check does not detect
+same-length manual corruption.
 - `server.lock`: OS-held single-server lock for that data directory. Closing/crashing
   the process releases it; the file itself can remain.
 
@@ -93,6 +97,8 @@ session status with the terminal event. JSONL is a recoverable projection so a
 crash between the two writes cannot lose the durable event. Transcripts contain
 prompts, outputs and source context in ordinary local storage; keep the data folder
 private. API client/key objects and launch tokens are excluded from snapshots.
+Unchanged history is not serialized again for every text delta. Completed idle
+players are evicted from memory and reconstructed from durable state on demand.
 
 CLI players resume from the saved backend session ID. OpenRouter resumes from saved
 conversation/history and accumulated usage. This durable resume is managed by the

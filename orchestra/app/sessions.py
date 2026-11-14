@@ -3,6 +3,7 @@ import asyncio
 import os
 import uuid
 from pathlib import Path
+from .errors import RequestError
 
 from ..bus import LockManager
 from ..players import base
@@ -29,14 +30,25 @@ class SessionManager:
         self._players, self._tasks, self._subscribers, self._paths, self._permissions = {}, {}, {}, {}, {}
         self._leases = {}
         self._launch = uuid.uuid4().hex
+        self._snapshot_revisions = {}
         self._closed = False
 
     def _snapshot(self, sid):
         player = self._players.get(sid)
-        return player.snapshot_state() if player and hasattr(player, 'snapshot_state') else None
+        if not player or not hasattr(player, 'snapshot_state'):
+            return None
+        if hasattr(player, 'snapshot_revision'):
+            revision = player.snapshot_revision()
+            if sid in self._snapshot_revisions and self._snapshot_revisions[sid] == revision:
+                return None
+        return player.snapshot_state()
 
     def publish(self, sid, event):
-        record = self.store.append(sid, event, self._snapshot(sid))
+        state = self._snapshot(sid)
+        record = self.store.append(sid, event, state)
+        player = self._players.get(sid)
+        if state is not None and player and hasattr(player, 'snapshot_revision'):
+            self._snapshot_revisions[sid] = player.snapshot_revision()
         for queue in tuple(self._subscribers.get(sid, ())):
             if queue.full():
                 while not queue.empty():
@@ -51,16 +63,16 @@ class SessionManager:
         if self._closed:
             raise Conflict('Session manager is shutting down')
         if not isinstance(prompt, str) or not prompt.strip() or len(prompt.encode('utf-8')) > 256 * 1024:
-            raise ValueError('prompt must contain 1 to 262144 UTF-8 bytes')
+            raise RequestError('prompt must contain 1 to 262144 UTF-8 bytes')
         session = self.store.session(sid)
         if sid in self._tasks and not self._tasks[sid].done():
             raise Conflict('A turn is already running in this session')
         try:
             cwd = Path(session['worktree'] or self.store.project(session['project_id'])['path']).resolve(strict=True)
         except (OSError, ValueError):
-            raise ValueError('Project folder is missing or inaccessible') from None
+            raise RequestError('Project folder is missing or inaccessible') from None
         if not cwd.is_dir():
-            raise ValueError('Project path is no longer a folder')
+            raise RequestError('Project path is no longer a folder')
         for blocked in self.store.blocked_sessions():
             path = Path(blocked['worktree'] or blocked['path']).resolve()
             if cwd.is_relative_to(path) or path.is_relative_to(cwd):
@@ -153,6 +165,8 @@ class SessionManager:
                     self._release(sid)
 
     def _release(self, sid):
+        self._players.pop(sid, None)
+        self._snapshot_revisions.pop(sid, None)
         self._permissions.pop(sid, None)
         self._paths.pop(sid, None)
         lease = self._leases.pop(sid, None)
@@ -167,16 +181,17 @@ class SessionManager:
     async def cancel(self, sid, confirm_stopped=False):
         session = self.store.session(sid)
         if not isinstance(confirm_stopped, bool):
-            raise ValueError('confirm_stopped must be boolean')
+            raise RequestError('confirm_stopped must be boolean')
         task = self._tasks.get(sid)
         if (task is None or task.done()) and session['status'] in {'cleanup_failed', 'interrupted'}:
             if not confirm_stopped:
                 raise Conflict('Stop leftover processes, then repeat cancel with confirm_stopped=true')
             cwd = session['worktree'] or self.store.project(session['project_id'])['path']
-            lock = LockManager(Path(cwd) / '.orchestra')
-            current = lock.get_current_lock()
-            if current and current.get('task_id') == sid and str(current.get('agent_id', '')).startswith('session-'):
-                lock.release(current['agent_id'])
+            if Path(cwd).is_dir():
+                lock = LockManager(Path(cwd) / '.orchestra')
+                current = lock.get_current_lock()
+                if current and current.get('task_id') == sid and str(current.get('agent_id', '')).startswith('session-'):
+                    lock.release(current['agent_id'])
             self._release(sid)
             self.store.update_session(sid, status='cancelled')
             self.publish(sid, {'type': base.NOTICE, 'message': 'User confirmed leftover processes are stopped.'})
@@ -207,7 +222,7 @@ class SessionManager:
     async def answer(self, sid, rid, allow):
         self.store.session(sid)
         if not isinstance(allow, bool):
-            raise ValueError('allow must be boolean')
+            raise RequestError('allow must be boolean')
         if rid not in self._permissions.get(sid, set()):
             raise Conflict('Permission request is not pending in this session')
         await self._players[sid].answer_permission(rid, allow)
@@ -218,7 +233,7 @@ class SessionManager:
     async def events(self, sid, after=0):
         latest = self.store.last_seq(sid)
         if not isinstance(after, int) or not 0 <= after <= latest:
-            raise ValueError('after must be a sequence between zero and the last stored event')
+            raise RequestError('after must be a sequence between zero and the last stored event')
         queue = asyncio.Queue(maxsize=128)
         subscribers = self._subscribers.setdefault(sid, set())
         subscribers.add(queue)

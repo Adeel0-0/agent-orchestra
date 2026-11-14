@@ -185,6 +185,13 @@ with Phase 2. This does not mark Antigravity verified.
 Owner exception (2026-11-15): start Phase 3 while Phase 2 live acceptance remains
 pending. No paid model or credential setup is required for its fake-player checks.
 
+PR #3 review follow-up (2026-11-15): merged base `5be5bc2`; local branch
+`codex/openrouter-review-fixes` addresses the ten numbered review findings and
+the smaller startup/snapshot/catalog/error/eviction issues. Final suite: 148 tests
+in 61.640s, 147 passed and one Windows symlink-privilege skip. These follow-up
+changes are uncommitted/unpushed. Phase 4 remains unstarted; its page-entry/token
+design is recorded in `docs/PHASE4-BOOTSTRAP.md` before UI work.
+
 ### Phase 0: make the engine safe to build on (1 to 2 days)
 
 Problems found while reading the code:

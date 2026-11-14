@@ -32,7 +32,9 @@ class SseTests(unittest.TestCase):
 class ClientTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.requests = []
+        self.gets = []
         requests = self.requests
+        gets = self.gets
         self.release = threading.Event()
         release = self.release
 
@@ -41,6 +43,7 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
                 pass
 
             def do_GET(self):
+                gets.append(self.path)
                 self.send_response(200)
                 self.end_headers()
                 if self.path.startswith('/hang/'):
@@ -52,9 +55,19 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
                 requests.append((self.path, self.headers.get('Authorization'), body))
+                if body.get('model') in {'test/http-error', 'test/retry', 'test/retry-wait'} and (
+                    body['model'] != 'test/retry' or sum(r[2]['model'] == 'test/retry' for r in requests) == 1):
+                    self.send_response(400 if body['model'] == 'test/http-error' else 429)
+                    self.send_header('Retry-After', '10' if body['model'] == 'test/retry-wait' else '0')
+                    self.end_headers()
+                    self.wfile.write(b'{"error":{"message":"Unsupported parameter for test-key"}}')
+                    return
                 self.send_response(200)
                 self.send_header('Content-Type', 'text/event-stream')
                 self.end_headers()
+                if body.get('model') == 'test/partial-error':
+                    self.wfile.write(b'data: {"choices":[{"delta":{"content":"partial"},"finish_reason":null}]}\n\ndata: {"error":{"code":503,"message":"unavailable"}}\n\n')
+                    return
                 if body.get('model') == 'test/hang':
                     self.wfile.write(b'data: {"choices":[{"delta":{"content":"waiting"},"finish_reason":null}]}\n\n')
                     self.wfile.flush()
@@ -91,6 +104,47 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(OpenRouterError, 'key'):
             _ = [c async for c in client.stream({'model': 'x', 'messages': []})]
         self.assertEqual(self.requests, [])
+
+    async def test_http_error_explains_reason_and_redacts_actual_key(self):
+        from orchestra.players.openrouter_client import OpenRouterClient, OpenRouterError
+        with self.assertRaises(OpenRouterError) as caught:
+            _ = [c async for c in OpenRouterClient(key='test-key', base_url=self.url).stream({'model': 'test/http-error'})]
+        self.assertIn('Unsupported parameter', str(caught.exception))
+        self.assertNotIn('test-key', str(caught.exception))
+        self.assertEqual(len(self.requests), 1)
+
+    async def test_retries_transient_http_only_before_any_streamed_chunk(self):
+        from orchestra.players.openrouter_client import OpenRouterClient, OpenRouterError
+        client = OpenRouterClient(key='test-key', base_url=self.url, retry_backoff=0)
+        chunks = [c async for c in client.stream({'model': 'test/retry'})]
+        self.assertEqual(chunks[0]['choices'][0]['delta']['content'], 'pong')
+        self.assertEqual(len(self.requests), 2)
+        with self.assertRaises(OpenRouterError):
+            _ = [c async for c in client.stream({'model': 'test/partial-error'})]
+        self.assertEqual(len(self.requests), 3)
+
+    async def test_catalog_is_cached_across_new_clients(self):
+        from orchestra.players.openrouter_client import OpenRouterClient
+        first = await OpenRouterClient(base_url=self.url).models()
+        first[0]['id'] = 'mutated-by-caller'
+        second = await OpenRouterClient(base_url=self.url).models()
+        self.assertEqual(second[0]['id'], 'test/tools')
+        self.assertEqual(len(self.gets), 1)
+
+    async def test_cancel_during_retry_backoff_prevents_second_request(self):
+        from orchestra.players.openrouter_client import OpenRouterClient
+        client = OpenRouterClient(key='test-key', base_url=self.url)
+        async def consume():
+            return [c async for c in client.stream({'model': 'test/retry-wait'})]
+        task = asyncio.create_task(consume())
+        async def backoff_started():
+            while client._retry_wait is None:
+                await asyncio.sleep(.01)
+        await asyncio.wait_for(backoff_started(), 3)
+        await client.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await asyncio.wait_for(task, .5)
+        self.assertEqual(len(self.requests), 1)
 
     async def test_external_cancel_stops_consumption_during_idle_read(self):
         from orchestra.players.openrouter_client import OpenRouterClient
