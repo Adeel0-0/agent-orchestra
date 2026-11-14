@@ -1,9 +1,9 @@
 # Checkpoint
 
-- **Status:** PAUSED after Phase 1. No writer active. Phase 1 is NOT committed.
+- **Status:** PAUSED after Phase 1. No writer active. Phase 1 committed as `c4bdb59` (not pushed).
 - **Objective:** Turn Agent Orchestra into a simple self-owned coding-agent app: open from terminal or window, open a project, use ChatGPT Plus, Google AI Pro and OpenRouter models. Plan in `docs/PLAN.md`.
 - **Branch:** `claude/youthful-rosalind-4b4ef5` (worktree `.claude/worktrees/youthful-rosalind-4b4ef5`). Base `4eba3d9` (Phase 0, committed). Phase 0 also exists on `claude/wonderful-wilson-2b14a9`.
-- **Phase 1 files (uncommitted):**
+- **Phase 1 files (in `c4bdb59`):**
   - new: `orchestra/players/{__init__,base,process,codex,claude,antigravity,registry}.py`, `orchestra/chat.py`, `tests/test_players.py`, `tests/fake_cli.py`, `tests/fixtures/{codex_edit,codex_resume,codex_error,claude_tool}.jsonl`
   - edited: `orchestra/cli.py` (`doctor`, `chat`), `README.md`, `docs/PLAN.md`, `CHECKPOINT.md`
 - **Design facts learned:**
@@ -26,6 +26,6 @@
 - **Next steps:**
   1. Owner installs Antigravity (`irm https://antigravity.google/cli/install.ps1 | iex` in PowerShell), runs `agy` once to sign in with the AI Pro account, then: `python -m orchestra chat -a antigravity --json "say pong"` and save real output to `tests/fixtures/agy_*.jsonl`.
   2. Owner fills in `classify_error`.
-  3. Commit Phase 1, then start Phase 2 (OpenRouter agent loop).
+  3. Start Phase 2 (OpenRouter agent loop), `docs/PLAN.md` section 7.
 
 Pickup prompt: "Read CHECKPOINT.md and docs/PLAN.md, check git status, then continue from Next steps."
