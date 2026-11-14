@@ -1,6 +1,6 @@
 # Agent Orchestra → a simple, self-owned coding-agent app
 
-Status: Phase 0 landed on `main` through PR #1 (OS-level lock guard, `policy.should_ship`, strict config, process-tree timeouts); this branch adds `__main__.py`, the import-time `sys.exit` fix and the CI token fix. Phase 1 implemented and tested for Codex and Claude; the Antigravity player follows the official docs but has not run, because `agy` is not installed. Phases 2 to 7 not started. Updated 2026-11-14.
+Status: PR #2 merged into `main` (356effc). Phase 1 implemented for Codex/Claude; Antigravity remains deferred and unverified. Phase 2 implementation/offline wrap-up complete locally; paid OpenRouter acceptance remains pending by owner choice. Phase 3 server/sessions and offline acceptance completed locally on 2026-11-15: 127 tests run, 126 passed, 1 symlink-privilege skip; real local HTTP/WebSocket fake-player disconnect/replay/restart acceptance and installed-wheel smoke passed. No commits or pushes. Phases 4 to 7 not started. See `CHECKPOINT.md`, `docs/OPENROUTER.md` and `docs/LOCAL-API.md`.
 
 ## 1. The goal in one paragraph
 
@@ -178,6 +178,12 @@ an `AGENT_CLAIM` travel on the same bus.
 
 Each phase ends in something you can run. Do not start a phase before the previous
 one's check passes.
+
+Owner exception (2026-11-14): defer the missing Antigravity verification and proceed
+with Phase 2. This does not mark Antigravity verified.
+
+Owner exception (2026-11-15): start Phase 3 while Phase 2 live acceptance remains
+pending. No paid model or credential setup is required for its fake-player checks.
 
 ### Phase 0: make the engine safe to build on (1 to 2 days)
 

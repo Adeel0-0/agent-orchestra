@@ -11,14 +11,15 @@ from .antigravity import AntigravityPlayer
 from .base import CliPlayer
 from .claude import ClaudePlayer
 from .codex import CodexPlayer
+from .openrouter import OpenRouterPlayer
 from .process import resolve_executable
 
-PLAYERS: Dict[str, Type[CliPlayer]] = {
-    p.id: p for p in (CodexPlayer, AntigravityPlayer, ClaudePlayer)
+PLAYERS: Dict[str, Type] = {
+    p.id: p for p in (CodexPlayer, AntigravityPlayer, ClaudePlayer, OpenRouterPlayer)
 }
 
 
-def get_player(player_id: str) -> Type[CliPlayer]:
+def get_player(player_id: str) -> Type:
     try:
         return PLAYERS[player_id]
     except KeyError:
@@ -61,7 +62,16 @@ def _logged_in(res: Optional[subprocess.CompletedProcess]) -> bool:
     return "not logged in" not in (res.stdout + res.stderr).lower()
 
 
-def check(player: Type[CliPlayer]) -> PlayerHealth:
+def check(player: Type) -> PlayerHealth:
+    if player.id == 'openrouter':
+        from .credentials import get_key, CredentialError
+        try:
+            configured = bool(get_key())
+        except CredentialError as exc:
+            return PlayerHealth(player.id, player.display_name, None, None, False, str(exc))
+        return PlayerHealth(player.id, player.display_name, 'https://openrouter.ai/api/v1',
+                            'Public HTTPS API (key presence only; credit/model access not checked)',
+                            configured, None if configured else player.login_hint)
     path = resolve_executable(player.executable)
     if path is None:
         return PlayerHealth(player.id, player.display_name, None, None, None, player.install_hint)

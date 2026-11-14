@@ -27,7 +27,10 @@ dependencies = []
 [project.optional-dependencies]
 watch = ["watchdog>=4.0.0"]
 yaml = ["pyyaml>=6.0"]
-all = ["watchdog>=4.0.0", "pyyaml>=6.0"]
+openrouter = ["keyring>=25.0"]
+app = ["starlette>=0.47.2,<1", "uvicorn>=0.35,<1", "websockets>=15,<17"]
+test-app = ["starlette>=0.47.2,<1", "uvicorn>=0.35,<1", "websockets>=15,<17", "httpx>=0.28,<1"]
+all = ["watchdog>=4.0.0", "pyyaml>=6.0", "keyring>=25.0", "starlette>=0.47.2,<1", "uvicorn>=0.35,<1", "websockets>=15,<17"]
 
 [project.scripts]
 orchestra = "orchestra.cli:main"
