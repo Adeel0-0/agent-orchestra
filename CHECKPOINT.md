@@ -1,6 +1,6 @@
 # Checkpoint
 
-- **Status:** IN PROGRESS — owner authorized committing/publishing Phase2/3 on2026-11-15. Codex reclaimed ownership for this bounded GitHub handoff. Implementation/offline acceptance complete; live/provider acceptance pending, Phase4 unstarted.
+- **Status:** Phase2/3 implementation COMMITTED AND PUSHED (2026-11-15), PR#3 open; annotated phase-3-offline tag published. No active writer after this final receipt; Codex released ownership. Live/provider acceptance pending, Phase4 unstarted.
 - **Objective:** Turn Agent Orchestra into a simple self-owned coding-agent app: open from terminal or window, open a project, use ChatGPT Plus, Google AI Pro and OpenRouter models. Plan in `docs/PLAN.md`.
 - **Branch:** `claude/youthful-rosalind-4b4ef5` (worktree `D:\agent-orchestra\.claude\worktrees\youthful-rosalind-4b4ef5`), with `origin/main` merged in. PR: https://github.com/Adeel0-0/agent-orchestra/pull/2 (base `main`, merged).
 - **How the engine stands (main's design, kept as is):**
@@ -20,7 +20,7 @@
 - **Checks run:** Latest supported-runtime full suite127 tests in61.244s:126 passed,1 Windows symlink-privilege skip. Real local HTTP/WebSocket fake-player reconnect/replay/restart acceptance, wheel build/install and installed bootstrap smoke passed. See PHASE3 FINAL CHECKPOINT.
 - **Not verified:** Antigravity end to end (not installed); real Ctrl+C in a console; `orchestra chat -a claude` end to end; interactive conversation mode by hand; Linux and macOS. The real Codex run happened before the merge, but the merge did not touch `orchestra/players/` or `chat.py`.
 - **Running processes:** none.
-- **Next steps:** Phase3 offline scope is finished. Await owner direction for Phase4 or pending live acceptance; do not start the next phase, configure credentials, commit or push automatically. Launch/API usage in docs/LOCAL-API.md.
+- **Next steps:** Review PR#3; do not merge or begin Phase4 without owner direction. Live/provider acceptance remains pending. Current publishing receipt at end of this file.
 
 ## Continuation preflight — 2026-11-14
 
@@ -224,3 +224,19 @@ This is the current recovery state and supersedes earlier Phase2-only/Phase3-pro
 - Publish plan: one Conventional Commit for coherent tested Phase2/3 changes (code spans both phases); annotated milestone tag phase-3-offline, explicitly not a production/live-acceptance release; push branch and this tag without force; open PR to main with summary, validation/limitations and existing enhancement/documentation labels. Do not merge.
 - No source/test changes since final127-test success in61.244s (126 passed/1 skip), installed-wheel smoke and diff/compile checks. Do not repeat full tests solely for metadata; verify staged diff and compile before commit. All prior files preserved; .orchestra runtime/build/message artifacts remain ignored, not staged.
 - Current writer Codex; next command: stage exactly the saved36 changed/new files, inspect staged diff/checks, then git commit with descriptive body. No task processes running.
+
+## PUBLISHED HANDOFF — 2026-11-15
+
+Current state; supersedes earlier no-commit/publish-in-progress entries for this handoff.
+
+- **Owner authorization:** Owner asked to commit all Phase2/3 changes with proper descriptions/tags in the GitHub publishing context. All saved36 files were staged exactly; no generated env/build/token files included. No merge authorized or performed.
+- **Implementation commit:** 40b06a93e2bf949e55a2648cb2718a5d2b6274b0 — feat(app): add OpenRouter agent and durable local sessions. Descriptive body covers both phases, recovery/security, validation and pending provider acceptance. Pushed to origin/claude/youthful-rosalind-4b4ef5, verified remote PR head40b06a9.
+- **PR:** https://github.com/Adeel0-0/agent-orchestra/pull/3, title feat(app): add OpenRouter agent and durable local sessions, base main, open, mergeable at check. Labels enhancement and documentation. Body includes summary/control-flow view, before/after evidence, test/build results and limitations. statusCheckRollup empty: no hosted CI checks configured/reported, not a CI pass claim.
+- **Annotated tag:** phase-3-offline published to origin, points at implementation40b06a9. Annotation states offline milestone,127 tests/installed-wheel acceptance, provider/keyring checks pending and no Phase4 UI. This is not a production version/release.
+- **Final receipt:** This following documentation-only commit records the observed publication and updates current status docs. Exact current documentation commit can be read with git log -1. Branch remains claude/youthful-rosalind-4b4ef5; no amend/rebase/force-push.
+- **Checks:** Staged diff whitespace and compileall passed before feature commit. Staged credential-pattern scan passed without printing contents. No source/test changes since full127 tests in61.244s (126passed/1skip), wheel build/install and installed bootstrap smoke; suite not redundantly rerun for docs/Git metadata. Final receipt diff checked before commit/push.
+- **Changed for publication:** CHECKPOINT.md ownership/authorization/receipt; docs/PLAN.md and docs/OPENROUTER.md current publication status; docs/PHASE3-PLAN.md publication note. Feature code/tests unchanged during GitHub handoff.
+- **Processes/ownership:** No task server/helper running. Codex releases writer ownership with this final receipt. .orchestra/phase3-venv, wheels and message/body files remain ignored local artifacts; launch/API keys not stored in repo.
+- **Remaining:** PR not merged. Live provider/keyring/manual console/abrupt real-CLI crash/Linux/macOS acceptance still pending; Phase4 not started. classify_error owner TODO and auto_push=true retained. No live call, installation or deployment during publication.
+- **Next concrete action:** Owner reviews PR#3 or explicitly directs further work. On resume read this receipt, inspect current git status/diff, fetch/check origin and reclaim writer ownership before editing. Do not auto-merge, configure credentials or start Phase4.
+- **Pickup prompt:** Resume Agent Orchestra from PUBLISHED HANDOFF in CHECKPOINT.md. Phase2/3 are committed/pushed with PR#3 and phase-3-offline tag. Inspect current status and reclaim ownership before newly authorized work; live acceptance remains pending and PR is unmerged.

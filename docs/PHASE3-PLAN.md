@@ -41,3 +41,6 @@ Execution finished 2026-11-15. All four milestones completed. Final full support
 runtime suite: 127 tests, 126 passed, one existing symlink-privilege skip. Local
 socket acceptance and wheel install/bootstrap smoke passed. Review findings and
 their regression fixes are recorded in CHECKPOINT.md; no commits/pushes were made.
+
+Published subsequently by owner request: implementation commit 40b06a9, PR #3
+(base main, unmerged), annotated phase-3-offline milestone tag.

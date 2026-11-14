@@ -98,7 +98,8 @@ Offline wrap-up completed on 2026-11-14. The latest full suite ran 98 tests in
 41.805 seconds: 97 passed and 1 symlink-privilege test skipped. Final diff whitespace,
 Python compilation, CLI help, doctor and public model-catalog smoke checks passed
 after the review fixes. Those final checks required no implementation changes, so
-the full suite was not repeated. The changes remain uncommitted.
+the full suite was not repeated. The implementation is now published in PR #3 with
+the annotated phase-3-offline milestone tag; live acceptance remains pending.
 
 Live acceptance still needs owner setup: pick an inexpensive tool-capable model,
 ask it to add a small test in a disposable project and run it, approve one command,
