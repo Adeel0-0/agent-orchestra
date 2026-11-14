@@ -234,15 +234,15 @@ class OrchestraDaemon:
         )
 
         if not res.success:
-            self.current_state = OrchestraState.ERROR
-            if self.config.pipeline.on_error_command:
-                self.runner.run_command(self.config.pipeline.on_error_command)
+            self._fail_pipeline()
             return False
 
         # Verification succeeded! Proceed to Git sync
         self.current_state = OrchestraState.SYNCING
         if self.config.git.enabled and self.git.is_git_repo():
-            self._execute_git_sync()
+            if not self._execute_git_sync():
+                self._fail_pipeline()
+                return False
 
         # Run post-sync command
         if self.config.pipeline.post_sync_command:
@@ -251,42 +251,67 @@ class OrchestraDaemon:
         self.current_state = OrchestraState.IDLE_CLEAN
         return True
 
-    def _execute_git_sync(self) -> None:
-        """Stage, commit, rebase, and fast-forward sync configured branches."""
+    def _fail_pipeline(self) -> None:
+        self.current_state = OrchestraState.ERROR
+        if self.config.pipeline.on_error_command:
+            self.runner.run_command(self.config.pipeline.on_error_command)
+
+    def _git_sync_failed(self, step: str, error: str) -> bool:
+        self.bus.emit(
+            event_type=EventType.GIT_SYNC_FAILED,
+            source_agent="orchestra",
+            payload={"step": step, "error": error},
+        )
+        return False
+
+    def _execute_git_sync(self) -> bool:
+        """
+        Stage, commit, rebase, push, and fast-forward sync branches.
+        Stops at the first failing step, emits GIT_SYNC_FAILED, and returns False.
+        """
+        git_cfg = self.config.git
         stat = self.git.get_status()
-        if not stat.is_clean and self.config.git.auto_commit:
-            self.git.stage_all()
-            msg = f"{self.config.git.commit_prefix} automated multi-agent handoff sync\n\nVerified by Agent Orchestra pipeline."
-            self.git.commit(msg)
+        if stat.branch != git_cfg.main_branch:
+            return self._git_sync_failed(
+                "branch", f"checked out '{stat.branch}', expected '{git_cfg.main_branch}'"
+            )
+
+        if not stat.is_clean and git_cfg.auto_commit:
+            msg = f"{git_cfg.commit_prefix} automated multi-agent handoff sync\n\nVerified by Agent Orchestra pipeline."
+            if not self.git.stage_all():
+                return self._git_sync_failed("stage", self.git.last_error)
+            if not self.git.commit(msg):
+                return self._git_sync_failed("commit", self.git.last_error)
             self.bus.emit(
                 event_type=EventType.GIT_COMMITTED,
                 source_agent="orchestra",
                 payload={"commit_message": msg},
             )
 
-        # Rebase on remote
-        self.git.fetch(self.config.git.remote)
-        self.git.rebase(f"{self.config.git.remote}/{self.config.git.main_branch}")
-
-        if self.config.git.auto_push:
-            self.git.push(self.config.git.remote, self.config.git.main_branch)
-
-        # Fast forward secondary branches
-        for sec in self.config.git.sync_branches:
-            self.git.fast_forward_branch(
-                target_branch=sec,
-                source_branch=self.config.git.main_branch,
-                remote=self.config.git.remote,
-            )
+        # Everything below exists to publish the commit, so it only runs when pushing.
+        if git_cfg.auto_push:
+            if not self.git.fetch(git_cfg.remote):
+                return self._git_sync_failed("fetch", self.git.last_error)
+            if not self.git.rebase(f"{git_cfg.remote}/{git_cfg.main_branch}"):
+                return self._git_sync_failed("rebase", self.git.last_error)
+            if not self.git.push(git_cfg.remote, git_cfg.main_branch):
+                return self._git_sync_failed("push", self.git.last_error)
+            for sec in git_cfg.sync_branches:
+                if not self.git.fast_forward_branch(
+                    target_branch=sec, source_branch=git_cfg.main_branch, remote=git_cfg.remote
+                ):
+                    return self._git_sync_failed(f"sync:{sec}", self.git.last_error)
 
         self.bus.emit(
             event_type=EventType.GIT_SYNCED,
             source_agent="orchestra",
             payload={
                 "main_branch": self.config.git.main_branch,
-                "synced_branches": self.config.git.sync_branches,
+                "synced_branches": self.config.git.sync_branches if self.config.git.auto_push else [],
+                "pushed": self.config.git.auto_push,
             },
         )
+        return True
 
     def start(self, poll_interval: float = 3.0) -> None:
         """Start the background filesystem watcher and autonomous event loop."""

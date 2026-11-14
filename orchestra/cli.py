@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 from .bus import EventBus, LockManager
-from .config import OrchestraConfig, load_config
+from .config import ConfigError, OrchestraConfig, load_config
 from .daemon import OrchestraDaemon
 from .models import EventType
 from .runner import ScriptRunner
@@ -236,7 +236,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     p_init.set_defaults(func=cmd_init)
 
     parsed = parser.parse_args(argv)
-    return parsed.func(parsed)
+    try:
+        return parsed.func(parsed)
+    except ConfigError as exc:
+        print(f"[FAILED] Invalid configuration: {exc}", file=sys.stderr)
+        return 2
 
 
 if hasattr(sys.stdout, "reconfigure"):

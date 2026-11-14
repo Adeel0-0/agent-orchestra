@@ -38,7 +38,9 @@ def orchestra_cli(repo, *args):
     )
 
 
-class TestHandoffDrivenPipeline(unittest.TestCase):
+class RepoTestCase(unittest.TestCase):
+    """A throwaway git repo on main with one commit, plus helpers to drive agents and the daemon."""
+
     def setUp(self):
         self.repo = Path(tempfile.mkdtemp())
         git(self.repo, "init", "-q", "-b", "main")
@@ -66,6 +68,8 @@ class TestHandoffDrivenPipeline(unittest.TestCase):
     def events_of(self, daemon, event_type):
         return [e for e in daemon.bus.read_events(limit=1000) if e.event_type == event_type]
 
+
+class TestHandoffDrivenPipeline(RepoTestCase):
     def test_dirty_tree_without_handoff_runs_nothing(self):
         daemon = self.make_daemon()
         (self.repo / "wip.py").write_text("x = 1\n")
@@ -148,6 +152,83 @@ class TestHandoffDrivenPipeline(unittest.TestCase):
         restarted.tick()
 
         self.assertEqual(len(self.events_of(restarted, EventType.VERIFICATION_STARTED)), 1)
+
+
+class TestGitSyncAgainstRemote(RepoTestCase):
+    """Pipeline runs that push to a real (bare) origin."""
+
+    def setUp(self):
+        super().setUp()
+        self.origin = Path(tempfile.mkdtemp()) / "origin.git"
+        git(self.repo, "init", "-q", "--bare", "-b", "main", str(self.origin))
+        git(self.repo, "remote", "add", "origin", str(self.origin))
+        git(self.repo, "push", "-q", "origin", "main", "main:go-backend")
+
+    def tearDown(self):
+        super().tearDown()
+        shutil.rmtree(self.origin.parent, ignore_errors=True)
+
+    def make_pushing_daemon(self):
+        daemon = self.make_daemon()
+        daemon.config.git.auto_push = True
+        daemon.config.git.sync_branches = ["go-backend"]
+        return daemon
+
+    def origin_sha(self, branch):
+        return git(self.origin, "rev-parse", branch)
+
+    def sync_failures(self, daemon):
+        return [e.payload["step"] for e in self.events_of(daemon, EventType.GIT_SYNC_FAILED)]
+
+    def test_successful_handoff_pushes_main_and_fast_forwards_sync_branch(self):
+        daemon = self.make_pushing_daemon()
+        self.agent_finishes("complete")
+
+        daemon.tick()
+
+        head = git(self.repo, "rev-parse", "HEAD")
+        self.assertNotEqual(head, self.base_sha)
+        self.assertEqual(self.origin_sha("main"), head)
+        self.assertEqual(self.origin_sha("go-backend"), head)
+        self.assertEqual(git(self.repo, "branch", "--show-current"), "main")  # no checkout happened
+        self.assertEqual(self.sync_failures(daemon), [])
+
+    def test_rebase_conflict_is_aborted_and_nothing_is_pushed(self):
+        # Someone else pushes a conflicting feature.py to origin first.
+        other = Path(tempfile.mkdtemp()) / "other"
+        git(self.repo, "clone", "-q", str(self.origin), str(other))
+        git(other, "config", "user.email", "other@example.com")
+        git(other, "config", "user.name", "other")
+        (other / "feature.py").write_text("def feature(): return 'theirs'\n")
+        git(other, "add", ".")
+        git(other, "commit", "-q", "-m", "theirs")
+        git(other, "push", "-q", "origin", "main")
+        theirs = self.origin_sha("main")
+        daemon = self.make_pushing_daemon()
+        self.agent_finishes("complete")
+
+        daemon.tick()
+
+        self.assertEqual(self.sync_failures(daemon), ["rebase"])
+        self.assertEqual(daemon.current_state, OrchestraState.ERROR)
+        self.assertEqual(self.origin_sha("main"), theirs)
+        self.assertEqual(self.origin_sha("go-backend"), self.base_sha)
+        self.assertFalse((self.repo / ".git" / "rebase-merge").exists())
+        self.assertFalse((self.repo / ".git" / "rebase-apply").exists())
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")  # local commit kept, tree clean
+        shutil.rmtree(other.parent, ignore_errors=True)
+
+    def test_wrong_branch_checked_out_commits_nothing(self):
+        git(self.repo, "switch", "-q", "-c", "experiment")
+        daemon = self.make_pushing_daemon()
+        self.agent_finishes("complete")
+
+        daemon.tick()
+
+        self.assertEqual(self.sync_failures(daemon), ["branch"])
+        self.assertEqual(git(self.repo, "rev-parse", "HEAD"), self.base_sha)
+        self.assertEqual(self.origin_sha("main"), self.base_sha)
+        self.assertEqual(daemon.current_state, OrchestraState.ERROR)
 
 
 if __name__ == "__main__":

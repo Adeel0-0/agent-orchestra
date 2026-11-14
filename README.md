@@ -88,6 +88,8 @@ orchestra init
 ```
 This generates an `orchestra.json` configuration in your root directory.
 
+The config is checked strictly. An unknown key (such as a typo like `auto_psuh`), a malformed file, or a section that isn't an object stops every command with an error naming the problem. Keys you leave out keep their defaults. `workspace_root` is resolved relative to the folder holding the config file.
+
 ---
 
 ## 🛠️ How Agents Communicate
@@ -181,7 +183,7 @@ You can also run any Python script directly through the Orchestra runner:
 orchestra run scripts/example_verifier.py --verbose
 ```
 The runner:
-- Enforces execution timeouts
+- Enforces execution timeouts, killing the command and everything it started (for example `npm` and the `node` processes under it)
 - Captures stdout and stderr cleanly
 - Automatically extracts JSON metrics printed by the script into structured execution reports
 
@@ -197,7 +199,7 @@ The daemon will:
 1. Watch watched paths for file modifications.
 2. Read new `HANDOFF_REQUEST` events from `events.jsonl`, resuming from `.orchestra/daemon_cursor.json` after a restart. On its first start it skips existing history.
 3. Run the verification pipeline once per approved handoff, holding the writer lock as `orchestra` so no agent can start editing mid-pipeline. A dirty tree with no handoff is only reported, never committed.
-4. Auto-commit, rebase, and fast-forward secondary branches when verification passes.
+4. When verification passes, commit on `main_branch`. With `auto_push`, it then fetches, rebases onto the remote, pushes, and moves each `sync_branches` entry forward on the remote (`git push origin main:<branch>`, with no checkout). If any step fails, the sync stops there: a failed rebase is aborted, nothing more is pushed, a `GIT_SYNC_FAILED` event names the step, and the state goes to `ERROR`. If a different branch is checked out, nothing is committed.
 5. Publish all lifecycle events to `events.jsonl`, including `CUSTOM_EVENT` with `"action": "handoff_skipped"` when a handoff is not shipped.
 
 ---
@@ -232,7 +234,7 @@ To use this in other projects (`Outcome Verifier`, `campus360-api`, etc.):
 cd agent-orchestra
 python -m unittest discover tests
 ```
-The 23 tests take about 15s. They cover models, event serialization, single-writer locking (including a multi-process claim race), the handoff-driven pipeline on throwaway git repos, the shipping policy, script timeouts, and configuration.
+The 38 tests take about 30s. They cover models, event serialization, single-writer locking (including a multi-process claim race), the handoff-driven pipeline and git sync on throwaway repos with a bare remote, the shipping policy, script timeouts (including killing child processes), and strict configuration.
 
 ---
 
