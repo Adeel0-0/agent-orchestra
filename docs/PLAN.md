@@ -1,6 +1,6 @@
 # Agent Orchestra → a simple, self-owned coding-agent app
 
-Status: Phase 0 committed (`4eba3d9`). Phase 1 implemented and tested for Codex and Claude; the Antigravity player is written from the official docs but not yet run, because `agy` is not installed. Phases 2 to 7 not started. Written 2026-11-14 on branch `claude/wonderful-wilson-2b14a9` (base `303bc85`).
+Status: Phase 0 landed on `main` through PR #1 (OS-level lock guard, `policy.should_ship`, strict config, process-tree timeouts); this branch adds `__main__.py`, the import-time `sys.exit` fix and the CI token fix. Phase 1 implemented and tested for Codex and Claude; the Antigravity player follows the official docs but has not run, because `agy` is not installed. Phases 2 to 7 not started. Updated 2026-11-14.
 
 ## 1. The goal in one paragraph
 

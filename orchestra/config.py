@@ -6,17 +6,9 @@ Supports loading from JSON and YAML with automatic discovery and sensible defaul
 from __future__ import annotations
 import json
 import os
-from dataclasses import dataclass, field, asdict, fields
+from dataclasses import dataclass, field, fields, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
-
-def _build(cls, data: Any):
-    """Build a config section, ignoring keys this version does not know."""
-    if not isinstance(data, dict):
-        return cls()
-    known = {f.name for f in fields(cls)}
-    return cls(**{k: v for k, v in data.items() if k in known})
 
 
 @dataclass
@@ -26,7 +18,7 @@ class GitSyncConfig:
     sync_branches: List[str] = field(default_factory=list)
     remote: str = "origin"
     auto_commit: bool = True
-    auto_push: bool = False  # pushing is opt-in
+    auto_push: bool = True
     commit_prefix: str = "chore(orchestra):"
 
 
@@ -82,22 +74,35 @@ class OrchestraConfig:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> OrchestraConfig:
-        git_data = data.get("git", {})
-        ci_data = data.get("ci", {})
-        pipeline_data = data.get("pipeline", {})
+        """
+        Build a config from parsed JSON/YAML. Unknown keys and wrong section types raise
+        ConfigError: a typo like "auto_psuh" must stop the daemon, not silently mean the default.
+        Keys that are left out keep their defaults.
+        """
+        sections = {"git": GitSyncConfig, "ci": CiConfig, "pipeline": PipelineConfig}
+        _reject_unknown_keys(data, cls, "")
 
-        return cls(
-            workspace_root=str(data.get("workspace_root", ".")),
-            orchestra_dir=str(data.get("orchestra_dir", ".orchestra")),
-            coordination_file=data.get("coordination_file"),
-            watch_paths=list(data.get("watch_paths", ["."])),
-            ignore_patterns=list(data.get("ignore_patterns", [])),
-            debounce_ms=int(data.get("debounce_ms", 400)),
-            lock_lease_seconds=int(data.get("lock_lease_seconds", 1800)),
-            git=_build(GitSyncConfig, git_data),
-            ci=_build(CiConfig, ci_data),
-            pipeline=_build(PipelineConfig, pipeline_data),
-        )
+        kwargs: Dict[str, Any] = {}
+        for key, value in data.items():
+            if key in sections:
+                if not isinstance(value, dict):
+                    raise ConfigError(f"'{key}' must be an object, got {type(value).__name__}")
+                _reject_unknown_keys(value, sections[key], f"{key}.")
+                kwargs[key] = sections[key](**value)
+            else:
+                kwargs[key] = value
+        return cls(**kwargs)
+
+
+class ConfigError(ValueError):
+    """The configuration file exists but cannot be used."""
+
+
+def _reject_unknown_keys(data: Dict[str, Any], schema: type, prefix: str) -> None:
+    unknown = sorted(set(data) - {f.name for f in fields(schema)})
+    if unknown:
+        allowed = ", ".join(f.name for f in fields(schema))
+        raise ConfigError(f"Unknown config key(s): {', '.join(prefix + k for k in unknown)}. Allowed: {allowed}")
 
 
 def load_config(root_dir: Optional[str | Path] = None) -> OrchestraConfig:
@@ -106,7 +111,9 @@ def load_config(root_dir: Optional[str | Path] = None) -> OrchestraConfig:
     1. orchestra.json
     2. orchestra.yaml / orchestra.yml
     3. .orchestra/config.json
-    Falls back to default config if none found.
+    The first file found is used; if it cannot be read or validated, ConfigError is raised.
+    Falls back to the default config only when no file exists.
+    workspace_root in the file is resolved relative to root_dir.
     """
     root = Path(root_dir or os.getcwd()).resolve()
     candidates = [
@@ -117,28 +124,27 @@ def load_config(root_dir: Optional[str | Path] = None) -> OrchestraConfig:
     ]
 
     for candidate in candidates:
-        if candidate.is_file():
-            try:
+        if not candidate.is_file():
+            continue
+        try:
+            with open(candidate, "r", encoding="utf-8") as f:
                 if candidate.suffix in (".yaml", ".yml"):
                     try:
                         import yaml  # type: ignore
-                        with open(candidate, "r", encoding="utf-8") as f:
-                            raw = yaml.safe_load(f)
-                            if isinstance(raw, dict):
-                                cfg = OrchestraConfig.from_dict(raw)
-                                cfg.workspace_root = str(root)
-                                return cfg
                     except ImportError:
-                        pass  # fallback to next candidate
+                        raise ConfigError(f"{candidate} needs PyYAML: pip install agent-orchestra[yaml]")
+                    raw = yaml.safe_load(f)
                 else:
-                    with open(candidate, "r", encoding="utf-8") as f:
-                        raw = json.load(f)
-                        if isinstance(raw, dict):
-                            cfg = OrchestraConfig.from_dict(raw)
-                            cfg.workspace_root = str(root)
-                            return cfg
-            except Exception:
-                continue
+                    raw = json.load(f)
+            if not isinstance(raw, dict):
+                raise ConfigError("top level must be an object")
+            cfg = OrchestraConfig.from_dict(raw)
+        except ConfigError as exc:
+            raise ConfigError(f"{candidate}: {exc}") from None
+        except Exception as exc:
+            raise ConfigError(f"{candidate}: {exc}") from exc
+        cfg.workspace_root = str((root / cfg.workspace_root).resolve())
+        return cfg
 
     # Default fallback
     cfg = OrchestraConfig()

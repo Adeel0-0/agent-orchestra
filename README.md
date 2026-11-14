@@ -88,6 +88,8 @@ orchestra init
 ```
 This generates an `orchestra.json` configuration in your root directory.
 
+The config is checked strictly. An unknown key (such as a typo like `auto_psuh`), a malformed file, or a section that isn't an object stops every command with an error naming the problem. Keys you leave out keep their defaults. `workspace_root` is resolved relative to the folder holding the config file.
+
 ---
 
 ## 💬 Chat with an Agent from the Terminal
@@ -123,6 +125,7 @@ orchestra claim AUTH-001 --agent claude --scope "OAuth2 token rotation" --lease 
 - Emits an `AGENT_CLAIM` event on the IPC bus.
 - Creates `.orchestra/writer.lock`.
 - Other agents trying to claim will be blocked until the lease expires or is released.
+- Claims are atomic across processes: if several agents claim at once, exactly one wins.
 
 ### 2. Checking Current State
 Any agent or human can check the real-time status:
@@ -150,9 +153,10 @@ When an agent finishes implementation:
 ```bash
 orchestra release --agent claude --status complete --summary "Implemented JWT rotation and 12 unit tests"
 ```
-- Emits a `HANDOFF_REQUEST` event.
+- Emits a `HANDOFF_REQUEST` event carrying the status and the lock that was released.
 - Removes `.orchestra/writer.lock`.
-- Notifies the autonomous daemon to trigger the verification pipeline.
+- The daemon passes the handoff to `should_ship()` in `orchestra/policy.py`. Only handoffs it approves are verified, committed, and pushed.
+- `--status paused` and `--status failed` never ship. The daemon reports `PAUSED_CHECKPOINT` and leaves the work untouched.
 
 ### 4. Emitting Custom Events
 Agents can broadcast custom telemetry, review verdicts, or notifications:
@@ -200,7 +204,7 @@ You can also run any Python script directly through the Orchestra runner:
 orchestra run scripts/example_verifier.py --verbose
 ```
 The runner:
-- Enforces execution timeouts
+- Enforces execution timeouts, killing the command and everything it started (for example `npm` and the `node` processes under it)
 - Captures stdout and stderr cleanly
 - Automatically extracts JSON metrics printed by the script into structured execution reports
 
@@ -214,11 +218,11 @@ orchestra start --interval 2.0
 ```
 The daemon will:
 1. Watch watched paths for file modifications.
-2. Detect task claims and handoffs in real-time.
-3. Run the verification pipeline once for each `orchestra release --status complete`. A dirty working tree alone never triggers it, and `paused` or `failed` handoffs are left alone.
-4. Auto-commit when verification passes. Rebase, push and fast-forward of secondary branches happen only with `"auto_push": true` (off by default) and only from the main branch.
-5. Hold an `ERROR` state when verification or git sync fails, until the next handoff or `orchestra reset`.
-6. Publish all lifecycle events to `events.jsonl` (rotated to `events.1.jsonl` at 5 MB).
+2. Read new `HANDOFF_REQUEST` events from `events.jsonl`, resuming from `.orchestra/daemon_cursor.json` after a restart. On its first start it skips existing history.
+3. Run the verification pipeline once per approved handoff, holding the writer lock as `orchestra` so no agent can start editing mid-pipeline. A dirty tree with no handoff is only reported, never committed.
+4. When verification passes, commit on `main_branch`. With `auto_push`, it then fetches, rebases onto the remote, pushes, and moves each `sync_branches` entry forward on the remote (`git push origin main:<branch>`, with no checkout). If any step fails, the sync stops there: a failed rebase is aborted, nothing more is pushed, a `GIT_SYNC_FAILED` event names the step, and the state goes to `ERROR`. If a different branch is checked out, nothing is committed.
+5. Publish all lifecycle events to `events.jsonl`, including `CUSTOM_EVENT` with `"action": "handoff_skipped"` when a handoff is not shipped.
+6. Hold `ERROR` after a failed verification or sync until the next writer claims the lock.
 
 ---
 
@@ -252,7 +256,7 @@ To use this in other projects (`Outcome Verifier`, `campus360-api`, etc.):
 cd agent-orchestra
 python -m unittest discover tests
 ```
-All 25 tests run in about 5s covering models, event serialization, single-writer locking (including simultaneous claims), event log tailing and rotation, the handoff-triggered pipeline, script timeouts, and configuration.
+The 60 tests take about 35s. They cover models, event serialization, single-writer locking (including a multi-process claim race), the handoff-driven pipeline and git sync on throwaway repos with a bare remote, the shipping policy, script timeouts (including killing child processes), strict configuration, the `python -m orchestra` entry point, and the agent players: event translation against recorded Codex and Claude output, the process runner, and cancelling a turn.
 
 ---
 

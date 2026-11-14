@@ -1,31 +1,25 @@
 # Checkpoint
 
-- **Status:** PAUSED after Phase 1. No writer active. Phase 1 committed as `c4bdb59` (not pushed).
+- **Status:** PAUSED after Phase 1. No writer active. Everything committed and pushed; PR #2 open.
 - **Objective:** Turn Agent Orchestra into a simple self-owned coding-agent app: open from terminal or window, open a project, use ChatGPT Plus, Google AI Pro and OpenRouter models. Plan in `docs/PLAN.md`.
-- **Branch:** `claude/youthful-rosalind-4b4ef5` (worktree `.claude/worktrees/youthful-rosalind-4b4ef5`). Base `4eba3d9` (Phase 0, committed). Phase 0 also exists on `claude/wonderful-wilson-2b14a9`.
-- **Phase 1 files (in `c4bdb59`):**
-  - new: `orchestra/players/{__init__,base,process,codex,claude,antigravity,registry}.py`, `orchestra/chat.py`, `tests/test_players.py`, `tests/fake_cli.py`, `tests/fixtures/{codex_edit,codex_resume,codex_error,claude_tool}.jsonl`
-  - edited: `orchestra/cli.py` (`doctor`, `chat`), `README.md`, `docs/PLAN.md`, `CHECKPOINT.md`
+- **Branch:** `claude/youthful-rosalind-4b4ef5` (worktree `D:\agent-orchestra\.claude\worktrees\youthful-rosalind-4b4ef5`), with `origin/main` merged in. PR: https://github.com/Adeel0-0/agent-orchestra/pull/2 (base `main`).
+- **How the engine stands (main's design, kept as is):**
+  - PR #1 (merged to `main`) did Phase 0 its own way, and this branch now uses that version of `bus.py`, `daemon.py`, `config.py`, `git_sync.py`, `models.py`, `runner.py` unchanged.
+  - The ship rule is `orchestra/policy.py::should_ship`: status complete, from the lock holder, within the lease.
+  - Unknown config keys raise `ConfigError`. `ERROR` is held until the next writer claims. There is no `orchestra reset`.
+  - This branch's own Phase 0 versions of those files were dropped in the merge. The only Phase 0 pieces kept from this branch: `orchestra/__main__.py`, the `if __name__ == "__main__"` guard in `cli.py`, and `ci_tracker._get_github_token` (env or `gh auth token`).
+- **Phase 1 (this branch):** `orchestra/players/` (`base.py` event contract, `process.py` runner, Codex/Claude/Antigravity players, `registry.py`), `orchestra/chat.py`, `orchestra chat` and `orchestra doctor` in `cli.py`, tests in `tests/test_players.py`, `tests/test_entry_point.py`, `tests/fake_cli.py`, `tests/fixtures/`.
 - **Design facts learned:**
   - `codex` on Windows is an npm `.CMD` shim, so prompts go on stdin; `process.py` refuses cmd.exe metacharacters in arguments to `.cmd`/`.bat`.
   - `codex exec resume` has no `-s`/`-C`: sandbox goes via `-c sandbox_mode=...`, folder via process cwd.
-  - Codex wraps every command in `powershell.exe -Command '...'`; `display_command` unwraps it for display, the raw command is kept as `raw_command`.
+  - Codex wraps commands in `powershell.exe -Command '...'`; `display_command` unwraps it for display, `raw_command` keeps the original.
   - Antigravity docs: events `init`, `step_update`, `result`; resume `--conversation <id>`; no cwd flag; `--mode plan|accept-edits`; prompt passed as the `-p` value.
-- **Owner decision pending:** `classify_error` in `orchestra/players/base.py` is a TODO left for the owner (maps error text to auth/quota/model/other). It returns "other" for everything until then.
-- **Checks run:**
-  - `python -m unittest discover tests`: 45 passed.
-  - Real Codex via `orchestra chat` on a scratch project: edit turn changed the file and ran a command; a `--resume` turn remembered it. Both exit 0.
-  - Real Claude: one stream-json capture recorded as a fixture (not through `orchestra chat`).
-  - `orchestra doctor`: Codex ready, Claude ready, Antigravity not installed.
-- **Not verified:**
-  - Antigravity end to end (not installed). Unknowns: whether `-p` takes the prompt as its value as assumed, whether a DONE `agent_response` repeats text, which parameter of a write tool holds the path.
-  - Real Ctrl+C in a console (cancellation is tested by cancelling the asyncio task, which kills the grandchild process).
-  - `orchestra chat -a claude` end to end, and the interactive conversation mode (no prompt) by hand.
-  - Linux and macOS.
+- **Owner decisions pending:**
+  - `classify_error` in `orchestra/players/base.py` is a TODO the owner chose to write (error text to auth/quota/model/other). Returns "other" until then.
+  - `auto_push` defaults to `true` in `config.py` and `orchestra.default.json`, as on `main`. Earlier work proposed `false`; the owner decides.
+- **Checks run:** `python -m unittest discover tests`: 60 passed (about 35s). Earlier, before the merge: a real Codex edit turn and a resumed turn through `orchestra chat`, exit 0 both.
+- **Not verified:** Antigravity end to end (not installed); real Ctrl+C in a console; `orchestra chat -a claude` end to end; interactive conversation mode by hand; Linux and macOS. The real Codex run happened before the merge, but the merge did not touch `orchestra/players/` or `chat.py`.
 - **Running processes:** none.
 - **Next steps:**
-  1. Owner installs Antigravity (`irm https://antigravity.google/cli/install.ps1 | iex` in PowerShell), runs `agy` once to sign in with the AI Pro account, then: `python -m orchestra chat -a antigravity --json "say pong"` and save real output to `tests/fixtures/agy_*.jsonl`.
-  2. Owner fills in `classify_error`.
-  3. Start Phase 2 (OpenRouter agent loop), `docs/PLAN.md` section 7.
-
-Pickup prompt: "Read CHECKPOINT.md and docs/PLAN.md, check git status, then continue from Next steps."
+  1. If `agy` is installed and signed in: `python -m orchestra chat -a antigravity --json "say pong"`, save the raw CLI output as `tests/fixtures/agy_*.jsonl`, fix the guesses listed in `orchestra/players/antigravity.py`. If not, ask the owner; do not install it yourself.
+  2. Phase 2: the OpenRouter agent loop (`docs/PLAN.md` section 7). It must emit the same events as `orchestra/players/base.py`.

@@ -23,7 +23,7 @@
     "sync_branches": [],
     "remote": "origin",
     "auto_commit": true,
-    "auto_push": false,
+    "auto_push": true,
     "commit_prefix": "chore(orchestra):"
   },
   "ci": {

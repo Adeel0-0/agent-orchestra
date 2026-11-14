@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 from .bus import EventBus, LockManager
-from .config import OrchestraConfig, load_config
+from .config import ConfigError, OrchestraConfig, load_config
 from .daemon import OrchestraDaemon
 from .models import EventType
 from .runner import ScriptRunner
@@ -48,8 +48,6 @@ def cmd_status(args: argparse.Namespace) -> int:
     if status.get("latest_event"):
         e = status["latest_event"]
         print(f"Latest Event: {e.get('event_type')} by {e.get('source_agent')}")
-    if status.get("last_error"):
-        print(f"Last Error:   {status['last_error']}")
     return 0
 
 
@@ -103,7 +101,12 @@ def cmd_release(args: argparse.Namespace) -> int:
     bus.emit(
         event_type=EventType.HANDOFF_REQUEST,
         source_agent=args.agent or "unknown",
-        payload={"task_id": task_id, "status": args.status, "summary": args.summary or ""},
+        payload={
+            "task_id": task_id,
+            "status": args.status,
+            "summary": args.summary or "",
+            "released_lock": current,
+        },
     )
     print(f"[OK] Writer lock released for task '{task_id}'. Event emitted.")
     return 0
@@ -161,13 +164,6 @@ def cmd_start(args: argparse.Namespace) -> int:
     daemon = OrchestraDaemon(cfg)
     print(f"[ORCHESTRA] Agent Orchestra Conductor started (watching {cfg.watch_paths})...")
     daemon.start(poll_interval=args.interval)
-    return 0
-
-
-def cmd_reset(args: argparse.Namespace) -> int:
-    daemon = OrchestraDaemon(load_config())
-    daemon.reset()
-    print("[OK] Orchestra state reset.")
     return 0
 
 
@@ -289,10 +285,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     p_init.add_argument("--force", action="store_true", help="Overwrite existing configuration")
     p_init.set_defaults(func=cmd_init)
 
-    # reset
-    p_reset = subparsers.add_parser("reset", help="Clear a held ERROR state and any pending handoff")
-    p_reset.set_defaults(func=cmd_reset)
-
     # doctor
     p_doctor = subparsers.add_parser("doctor", help="Check which agent CLIs are installed and logged in")
     p_doctor.add_argument("--json", action="store_true", help="Output as JSON")
@@ -319,7 +311,11 @@ def main(argv: Optional[list[str]] = None) -> int:
                 pass
 
     parsed = parser.parse_args(argv)
-    return parsed.func(parsed)
+    try:
+        return parsed.func(parsed)
+    except ConfigError as exc:
+        print(f"[FAILED] Invalid configuration: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
