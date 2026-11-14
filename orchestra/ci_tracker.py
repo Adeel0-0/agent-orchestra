@@ -48,17 +48,14 @@ class CiTracker:
         return parts
 
     def _get_github_token(self) -> Optional[str]:
-        """Fetch token from git credential helper securely without writing to disk."""
-        res = self.runner.run_command(
-            ["git", "credential", "fill"],
-            shell=False,
-            # We pass input via command if runner supports it or standard helper
-        )
-        # Fallback to checking GITHUB_TOKEN or GH_TOKEN env vars
+        """Token from the environment, else from the GitHub CLI. Never written to disk."""
         import os
         token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
         if token:
             return token.strip()
+        res = self.runner.run_command(["gh", "auth", "token"], shell=False, timeout_seconds=10)
+        if res.success and res.stdout.strip():
+            return res.stdout.strip()
         return None
 
     def fetch_latest_run(

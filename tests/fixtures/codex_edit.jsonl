@@ -1,0 +1,9 @@
+{"type": "thread.started", "thread_id": "01a1d9a8-e58b-7e22-8a89-cbe634014e35"}
+{"type": "turn.started"}
+{"type": "item.completed", "item": {"id": "item_0", "type": "agent_message", "text": "I\u2019ll read a.txt, then replace hello with goodbye.\n"}}
+{"type": "item.started", "item": {"id": "item_1", "type": "command_execution", "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'cat a.txt'", "aggregated_output": "", "exit_code": null, "status": "in_progress"}}
+{"type": "item.completed", "item": {"id": "item_1", "type": "command_execution", "command": "\"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\" -Command 'cat a.txt'", "aggregated_output": "hello\r\n", "exit_code": 0, "status": "completed"}}
+{"type": "item.started", "item": {"id": "item_2", "type": "file_change", "changes": [{"path": "C:\\project\\a.txt", "kind": "update"}], "status": "in_progress"}}
+{"type": "item.completed", "item": {"id": "item_2", "type": "file_change", "changes": [{"path": "C:\\project\\a.txt", "kind": "update"}], "status": "completed"}}
+{"type": "item.completed", "item": {"id": "item_3", "type": "agent_message", "text": "Ran `cat a.txt` and changed `hello` to `goodbye` in `a.txt`."}}
+{"type": "turn.completed", "usage": {"input_tokens": 94527, "cached_input_tokens": 62592, "cache_write_input_tokens": 0, "output_tokens": 167, "reasoning_output_tokens": 0}}

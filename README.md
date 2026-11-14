@@ -92,6 +92,27 @@ The config is checked strictly. An unknown key (such as a typo like `auto_psuh`)
 
 ---
 
+## 💬 Chat with an Agent from the Terminal
+
+Orchestra drives the official agent CLIs with your existing logins, so ChatGPT Plus or Google AI Pro subscriptions are used directly, with no API keys.
+
+```bash
+orchestra doctor                      # which agents are installed and logged in
+orchestra chat "explain this repo"    # one turn with Codex (ChatGPT) in the current folder
+orchestra chat -a claude -C ../app    # a conversation with Claude Code in another folder
+orchestra chat -r <session-id> "and now add tests"   # continue a previous session
+```
+
+| Agent (`-a`) | Account | Needs |
+|---|---|---|
+| `codex` (default) | ChatGPT Plus / Pro | `npm install -g @openai/codex`, then `codex login` |
+| `antigravity` | Google AI Pro / Ultra | Antigravity CLI (`agy`), signed in once interactively |
+| `claude` | Claude Pro / Max | Claude Code, signed in |
+
+`-p` sets what the agent may do: `read-only`, `edit` (default, changes files inside the project) or `full` (no limits). `--json` prints the normalized event stream instead of formatted text. Ctrl+C stops the current turn and the agent's processes.
+
+---
+
 ## 🛠️ How Agents Communicate
 
 Agents interact with the Orchestra using simple CLI commands or the Python API:
@@ -201,6 +222,7 @@ The daemon will:
 3. Run the verification pipeline once per approved handoff, holding the writer lock as `orchestra` so no agent can start editing mid-pipeline. A dirty tree with no handoff is only reported, never committed.
 4. When verification passes, commit on `main_branch`. With `auto_push`, it then fetches, rebases onto the remote, pushes, and moves each `sync_branches` entry forward on the remote (`git push origin main:<branch>`, with no checkout). If any step fails, the sync stops there: a failed rebase is aborted, nothing more is pushed, a `GIT_SYNC_FAILED` event names the step, and the state goes to `ERROR`. If a different branch is checked out, nothing is committed.
 5. Publish all lifecycle events to `events.jsonl`, including `CUSTOM_EVENT` with `"action": "handoff_skipped"` when a handoff is not shipped.
+6. Hold `ERROR` after a failed verification or sync until the next writer claims the lock.
 
 ---
 
@@ -234,7 +256,7 @@ To use this in other projects (`Outcome Verifier`, `campus360-api`, etc.):
 cd agent-orchestra
 python -m unittest discover tests
 ```
-The 38 tests take about 30s. They cover models, event serialization, single-writer locking (including a multi-process claim race), the handoff-driven pipeline and git sync on throwaway repos with a bare remote, the shipping policy, script timeouts (including killing child processes), and strict configuration.
+The 60 tests take about 35s. They cover models, event serialization, single-writer locking (including a multi-process claim race), the handoff-driven pipeline and git sync on throwaway repos with a bare remote, the shipping policy, script timeouts (including killing child processes), strict configuration, the `python -m orchestra` entry point, and the agent players: event translation against recorded Codex and Claude output, the process runner, and cancelling a turn.
 
 ---
 
