@@ -21,10 +21,12 @@ def should_ship(handoff: HandoffPayload, released_lock: Optional[Dict[str, Any]]
         The writer lock as it stood when the agent released it, or None if no lock was held.
         Keys: task_id, agent_id, scope, claimed_at, expires_at (epoch seconds), pid.
     """
-    # TODO(owner): implement the shipping policy. Questions to settle:
-    #   - Only "complete" should ever ship; "paused", "failed", and "unknown" must not.
-    #   - Ship if the agent never held the lock (released_lock is None)?
-    #   - Ship if released_lock["agent_id"] differs from handoff.agent_id (a --force release)?
-    #   - Ship if the lease had already expired (released_lock["expires_at"] < handoff.timestamp)?
-    #     Another agent could have claimed and written in the meantime.
-    return False
+    if handoff.status != "complete":
+        return False
+    if not released_lock:
+        return False
+    if released_lock.get("agent_id") != handoff.agent_id:
+        return False
+    if released_lock.get("expires_at", 0) < handoff.timestamp:
+        return False
+    return True
