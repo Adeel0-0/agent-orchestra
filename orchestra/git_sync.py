@@ -26,6 +26,13 @@ class GitEngine:
     def __init__(self, workspace_root: Path | str) -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self.runner = ScriptRunner(default_cwd=self.workspace_root)
+        self.last_error = ""  # stderr of the most recent failed git command
+
+    def _git(self, *args: str) -> bool:
+        res = self.runner.run_command(["git", *args], shell=False)
+        if not res.success:
+            self.last_error = (res.stderr or res.stdout).strip()[-2000:]
+        return res.success
 
     def is_git_repo(self) -> bool:
         res = self.runner.run_command(["git", "rev-parse", "--is-inside-work-tree"], shell=False)
@@ -52,46 +59,31 @@ class GitEngine:
         )
 
     def stage_all(self) -> bool:
-        res = self.runner.run_command(["git", "add", "."], shell=False)
-        return res.success
+        return self._git("add", ".")
 
     def commit(self, message: str) -> bool:
-        res = self.runner.run_command(["git", "commit", "-m", message], shell=False)
-        return res.success
+        return self._git("commit", "-m", message)
 
     def fetch(self, remote: str = "origin") -> bool:
-        res = self.runner.run_command(["git", "fetch", remote, "--prune"], shell=False)
-        return res.success
+        return self._git("fetch", remote, "--prune")
 
     def rebase(self, upstream: str) -> bool:
-        res = self.runner.run_command(["git", "rebase", upstream], shell=False)
-        return res.success
+        """Rebase onto upstream. On a conflict, abort so the tree is left as it was before the rebase."""
+        if self._git("rebase", upstream):
+            return True
+        error = self.last_error
+        self._git("rebase", "--abort")
+        self.last_error = error
+        return False
 
     def push(self, remote: str = "origin", branch: str = "main") -> bool:
-        res = self.runner.run_command(["git", "push", remote, branch], shell=False)
-        return res.success
+        return self._git("push", remote, branch)
 
     def fast_forward_branch(self, target_branch: str, source_branch: str = "main", remote: str = "origin") -> bool:
         """
-        Fast-forward target_branch to source_branch and push to remote.
-        Restores the original branch when complete.
+        Move remote target_branch up to local source_branch.
+        The remote rejects anything but a fast-forward, and nothing is checked out,
+        so the working tree agents are using never changes.
         """
-        status = self.get_status()
-        orig_branch = status.branch
-
-        # Switch to target
-        res1 = self.runner.run_command(["git", "checkout", target_branch], shell=False)
-        if not res1.success:
-            return False
-
-        # Fast forward merge
-        res2 = self.runner.run_command(["git", "merge", source_branch, "--ff-only"], shell=False)
-
-        # Push to remote if ff succeeded
-        if res2.success:
-            self.runner.run_command(["git", "push", remote, target_branch], shell=False)
-
-        # Switch back to original branch
-        self.runner.run_command(["git", "checkout", orig_branch], shell=False)
-        return res2.success
+        return self._git("push", remote, f"{source_branch}:refs/heads/{target_branch}")
 

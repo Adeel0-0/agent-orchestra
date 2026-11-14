@@ -15,6 +15,27 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    """Kill proc and every process it started."""
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    else:
+        import signal
+
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)  # start_new_session made pid the group id
+        except ProcessLookupError:
+            pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
 @dataclass
 class ExecutionResult:
     command: str
@@ -68,28 +89,46 @@ class ScriptRunner:
 
         start_time = time.time()
         try:
-            proc = subprocess.run(
+            # Own process group/session, so a timeout can kill everything the command started
+            # (cmd.exe -> npm -> node), not just the shell.
+            group_kwargs: Dict[str, Any] = (
+                {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+                if os.name == "nt"
+                else {"start_new_session": True}
+            )
+            proc = subprocess.Popen(
                 command,
                 cwd=str(working_dir),
                 env=run_env,
                 shell=shell,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=timeout_seconds,
+                **group_kwargs,
             )
+            try:
+                stdout, stderr = proc.communicate(timeout=timeout_seconds)
+                exit_code = proc.returncode
+                success = exit_code == 0
+            except subprocess.TimeoutExpired:
+                _kill_process_tree(proc)
+                try:
+                    stdout, _ = proc.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    # A descendant escaped the group and still holds the pipe; stop waiting for it.
+                    for pipe in (proc.stdout, proc.stderr):
+                        if pipe:
+                            pipe.close()
+                    proc.wait(timeout=5)
+                    stdout = ""
+                exit_code = -1
+                stderr = f"Command timed out after {timeout_seconds} seconds."
+                success = False
+            stdout = stdout or ""
+            stderr = stderr or ""
             duration = round(time.time() - start_time, 3)
-            exit_code = proc.returncode
-            stdout = proc.stdout or ""
-            stderr = proc.stderr or ""
-            success = exit_code == 0
-        except subprocess.TimeoutExpired as exc:
-            duration = round(time.time() - start_time, 3)
-            exit_code = -1
-            stdout = exc.stdout or ""
-            stderr = f"Command timed out after {timeout_seconds} seconds."
-            success = False
         except Exception as exc:
             duration = round(time.time() - start_time, 3)
             exit_code = -1

@@ -5,6 +5,7 @@ triggers verification pipelines, executes Python scripts, and handles Git synchr
 """
 
 from __future__ import annotations
+import json
 import os
 import sys
 import time
@@ -15,7 +16,8 @@ from .bus import EventBus, LockManager
 from .ci_tracker import CiTracker
 from .config import OrchestraConfig, load_config
 from .git_sync import GitEngine
-from .models import AgentEvent, EventType, OrchestraState
+from .models import AgentEvent, EventType, HandoffPayload, OrchestraState
+from .policy import should_ship
 from .runner import ScriptRunner
 from .watcher import FilesystemWatcher
 
@@ -38,6 +40,21 @@ class OrchestraDaemon:
         self.current_state = OrchestraState.IDLE_CLEAN
         self._watcher: Optional[FilesystemWatcher] = None
         self._running = False
+
+        self._cursor_file = self.orchestra_dir / "daemon_cursor.json"
+        self._cursor = self._load_cursor()
+
+    def _load_cursor(self) -> int:
+        """Resume where the last daemon stopped; a first run starts at the end so old handoffs never replay."""
+        try:
+            return int(json.loads(self._cursor_file.read_text(encoding="utf-8"))["offset"])
+        except Exception:
+            return self.bus.end_offset()
+
+    def _save_cursor(self) -> None:
+        tmp_file = self._cursor_file.with_suffix(".tmp")
+        tmp_file.write_text(json.dumps({"offset": self._cursor}), encoding="utf-8")
+        tmp_file.replace(self._cursor_file)
 
     def get_status(self) -> Dict[str, Any]:
         """Inspect the current full operational state."""
@@ -107,7 +124,12 @@ class OrchestraDaemon:
                         self.bus.emit(
                             event_type=EventType.HANDOFF_REQUEST,
                             source_agent=current.get("agent_id", "agent") if current else "agent",
-                            payload={"note": "Writer released via coordination file"},
+                            payload={
+                                "note": "Writer released via coordination file",
+                                # The file says the writer left, not that the work is finished.
+                                "status": "unknown",
+                                "released_lock": current,
+                            },
                         )
                 else:
                     # Writer is active
@@ -125,28 +147,70 @@ class OrchestraDaemon:
     def tick(self) -> Dict[str, Any]:
         """
         Execute a single evaluation pass of the state machine.
-        Checks locks, git tree, verification triggers, and synchronizations.
+        Consumes new bus events (handoffs may trigger the pipeline), then refreshes the reported state.
         """
-        git_stat = self.git.get_status() if self.git.is_git_repo() else None
-        lock = self.locks.get_current_lock()
-        is_locked = self.locks.is_locked()
+        events, new_offset = self.bus.read_from(self._cursor)
+        if new_offset != self._cursor:
+            # Advance before handling so a crash mid-pipeline never re-ships the same handoff.
+            self._cursor = new_offset
+            self._save_cursor()
+        for event in events:
+            self._handle_event(event)
 
-        # 1. WRITER_ACTIVE
-        if is_locked:
+        if self.locks.is_locked():
             self.current_state = OrchestraState.WRITER_ACTIVE
-            return self.get_status()
-
-        # 2. Check if git tree is dirty and writer is released -> READY_NEEDS_VERIFY
-        if git_stat and not git_stat.is_clean:
-            self.current_state = OrchestraState.READY_NEEDS_VERIFY
-            # Run verification pipeline if configured
-            if self.config.pipeline.verify_command:
-                self.run_handoff_pipeline()
-            return self.get_status()
-
-        # 3. Clean and idle
-        self.current_state = OrchestraState.IDLE_CLEAN
+        elif self.current_state in (OrchestraState.ERROR, OrchestraState.PAUSED_CHECKPOINT):
+            pass  # Held until the next writer claims
+        else:
+            # A dirty tree is only reported. Nothing ships without a handoff event.
+            git_stat = self.git.get_status() if self.git.is_git_repo() else None
+            dirty = git_stat is not None and not git_stat.is_clean
+            self.current_state = OrchestraState.READY_NEEDS_VERIFY if dirty else OrchestraState.IDLE_CLEAN
         return self.get_status()
+
+    def _handle_event(self, event: AgentEvent) -> None:
+        """React to one bus event. Only HANDOFF_REQUEST drives the pipeline."""
+        if event.event_type != EventType.HANDOFF_REQUEST:
+            return
+
+        handoff = HandoffPayload.from_dict(
+            {**event.payload, "agent_id": event.source_agent, "timestamp": event.timestamp}
+        )
+        released_lock = event.payload.get("released_lock")
+        if not isinstance(released_lock, dict):
+            released_lock = None
+
+        if not should_ship(handoff, released_lock):
+            if handoff.status == "paused":
+                self.current_state = OrchestraState.PAUSED_CHECKPOINT
+            self._emit_handoff_skipped(handoff, reason="policy")
+            return
+
+        # Hold the writer lock so no agent starts editing while we verify and commit.
+        if not self.locks.acquire(
+            task_id=handoff.task_id,
+            agent_id="orchestra",
+            scope="handoff pipeline",
+            lease_seconds=self.config.lock_lease_seconds,
+        ):
+            self._emit_handoff_skipped(handoff, reason="writer_active")
+            return
+        try:
+            self.run_handoff_pipeline()
+        finally:
+            self.locks.release(agent_id="orchestra")
+
+    def _emit_handoff_skipped(self, handoff: HandoffPayload, reason: str) -> None:
+        self.bus.emit(
+            event_type=EventType.CUSTOM_EVENT,
+            source_agent="orchestra",
+            payload={
+                "action": "handoff_skipped",
+                "reason": reason,
+                "task_id": handoff.task_id,
+                "status": handoff.status,
+            },
+        )
 
     def run_handoff_pipeline(self) -> bool:
         """
@@ -170,15 +234,15 @@ class OrchestraDaemon:
         )
 
         if not res.success:
-            self.current_state = OrchestraState.ERROR
-            if self.config.pipeline.on_error_command:
-                self.runner.run_command(self.config.pipeline.on_error_command)
+            self._fail_pipeline()
             return False
 
         # Verification succeeded! Proceed to Git sync
         self.current_state = OrchestraState.SYNCING
         if self.config.git.enabled and self.git.is_git_repo():
-            self._execute_git_sync()
+            if not self._execute_git_sync():
+                self._fail_pipeline()
+                return False
 
         # Run post-sync command
         if self.config.pipeline.post_sync_command:
@@ -187,46 +251,72 @@ class OrchestraDaemon:
         self.current_state = OrchestraState.IDLE_CLEAN
         return True
 
-    def _execute_git_sync(self) -> None:
-        """Stage, commit, rebase, and fast-forward sync configured branches."""
+    def _fail_pipeline(self) -> None:
+        self.current_state = OrchestraState.ERROR
+        if self.config.pipeline.on_error_command:
+            self.runner.run_command(self.config.pipeline.on_error_command)
+
+    def _git_sync_failed(self, step: str, error: str) -> bool:
+        self.bus.emit(
+            event_type=EventType.GIT_SYNC_FAILED,
+            source_agent="orchestra",
+            payload={"step": step, "error": error},
+        )
+        return False
+
+    def _execute_git_sync(self) -> bool:
+        """
+        Stage, commit, rebase, push, and fast-forward sync branches.
+        Stops at the first failing step, emits GIT_SYNC_FAILED, and returns False.
+        """
+        git_cfg = self.config.git
         stat = self.git.get_status()
-        if not stat.is_clean and self.config.git.auto_commit:
-            self.git.stage_all()
-            msg = f"{self.config.git.commit_prefix} automated multi-agent handoff sync\n\nVerified by Agent Orchestra pipeline."
-            self.git.commit(msg)
+        if stat.branch != git_cfg.main_branch:
+            return self._git_sync_failed(
+                "branch", f"checked out '{stat.branch}', expected '{git_cfg.main_branch}'"
+            )
+
+        if not stat.is_clean and git_cfg.auto_commit:
+            msg = f"{git_cfg.commit_prefix} automated multi-agent handoff sync\n\nVerified by Agent Orchestra pipeline."
+            if not self.git.stage_all():
+                return self._git_sync_failed("stage", self.git.last_error)
+            if not self.git.commit(msg):
+                return self._git_sync_failed("commit", self.git.last_error)
             self.bus.emit(
                 event_type=EventType.GIT_COMMITTED,
                 source_agent="orchestra",
                 payload={"commit_message": msg},
             )
 
-        # Rebase on remote
-        self.git.fetch(self.config.git.remote)
-        self.git.rebase(f"{self.config.git.remote}/{self.config.git.main_branch}")
-
-        if self.config.git.auto_push:
-            self.git.push(self.config.git.remote, self.config.git.main_branch)
-
-        # Fast forward secondary branches
-        for sec in self.config.git.sync_branches:
-            self.git.fast_forward_branch(
-                target_branch=sec,
-                source_branch=self.config.git.main_branch,
-                remote=self.config.git.remote,
-            )
+        # Everything below exists to publish the commit, so it only runs when pushing.
+        if git_cfg.auto_push:
+            if not self.git.fetch(git_cfg.remote):
+                return self._git_sync_failed("fetch", self.git.last_error)
+            if not self.git.rebase(f"{git_cfg.remote}/{git_cfg.main_branch}"):
+                return self._git_sync_failed("rebase", self.git.last_error)
+            if not self.git.push(git_cfg.remote, git_cfg.main_branch):
+                return self._git_sync_failed("push", self.git.last_error)
+            for sec in git_cfg.sync_branches:
+                if not self.git.fast_forward_branch(
+                    target_branch=sec, source_branch=git_cfg.main_branch, remote=git_cfg.remote
+                ):
+                    return self._git_sync_failed(f"sync:{sec}", self.git.last_error)
 
         self.bus.emit(
             event_type=EventType.GIT_SYNCED,
             source_agent="orchestra",
             payload={
                 "main_branch": self.config.git.main_branch,
-                "synced_branches": self.config.git.sync_branches,
+                "synced_branches": self.config.git.sync_branches if self.config.git.auto_push else [],
+                "pushed": self.config.git.auto_push,
             },
         )
+        return True
 
     def start(self, poll_interval: float = 3.0) -> None:
         """Start the background filesystem watcher and autonomous event loop."""
         self._running = True
+        self._save_cursor()  # Handoffs sent while this daemon is down are picked up on restart
         self._watcher = FilesystemWatcher(
             root_dir=self.root,
             watch_paths=self.config.watch_paths,

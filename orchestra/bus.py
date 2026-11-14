@@ -9,10 +9,31 @@ import json
 import os
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Dict, Generator, List, Optional
+from typing import Any, Callable, Dict, Generator, Iterator, List, Optional, Tuple
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 from .models import AgentEvent, EventType
+
+
+def _retry_on_sharing_violation(action: Callable[[], None], attempts: int = 5) -> None:
+    """
+    Windows refuses to replace or delete a file while another process has it open,
+    even for the instant a reader needs, so retry briefly before giving up.
+    """
+    for attempt in range(attempts):
+        try:
+            action()
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.05)
 
 
 class EventBus:
@@ -119,6 +140,38 @@ class EventBus:
         all_events = self.read_events(limit=1)
         return all_events[0] if all_events else None
 
+    def end_offset(self) -> int:
+        """Byte offset of the end of the stream, for readers that want only new events."""
+        return self.events_file.stat().st_size if self.events_file.is_file() else 0
+
+    def read_from(self, offset: int) -> Tuple[List[AgentEvent], int]:
+        """
+        Read events appended after byte `offset`.
+        Returns the events and the offset to resume from. A trailing line that another
+        process is still writing is left for the next call rather than dropped.
+        """
+        size = self.end_offset()
+        if size < offset:
+            offset = 0  # File was truncated/rotated
+        if size == offset:
+            return [], offset
+
+        with open(self.events_file, "rb") as f:
+            f.seek(offset)
+            chunk = f.read(size - offset)
+
+        complete_len = chunk.rfind(b"\n") + 1
+        events: List[AgentEvent] = []
+        for raw in chunk[:complete_len].splitlines():
+            line = raw.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+            try:
+                events.append(AgentEvent.from_json(line))
+            except Exception:
+                continue
+        return events, offset + complete_len
+
     def stream_events(
         self, poll_interval: float = 0.5, start_from_beginning: bool = False
     ) -> Generator[AgentEvent, None, None]:
@@ -126,27 +179,10 @@ class EventBus:
         Continuously stream incoming events as a generator.
         Ideal for monitoring CLI commands or reactive daemons.
         """
-        last_pos = 0
-        if not start_from_beginning and self.events_file.is_file():
-            last_pos = self.events_file.stat().st_size
-
+        offset = 0 if start_from_beginning else self.end_offset()
         while True:
-            if self.events_file.is_file():
-                current_size = self.events_file.stat().st_size
-                if current_size > last_pos:
-                    with open(self.events_file, "r", encoding="utf-8") as f:
-                        f.seek(last_pos)
-                        for line in f:
-                            line = line.strip()
-                            if line:
-                                try:
-                                    yield AgentEvent.from_json(line)
-                                except Exception:
-                                    pass
-                        last_pos = f.tell()
-                elif current_size < last_pos:
-                    # File was truncated/rotated
-                    last_pos = 0
+            events, offset = self.read_from(offset)
+            yield from events
             time.sleep(poll_interval)
 
 
@@ -160,6 +196,50 @@ class LockManager:
         self.orchestra_dir = Path(orchestra_dir).resolve()
         self.orchestra_dir.mkdir(parents=True, exist_ok=True)
         self.lock_file = self.orchestra_dir / "writer.lock"
+        self.guard_file = self.orchestra_dir / "writer.lock.guard"
+
+    @contextmanager
+    def _guard(self) -> Iterator[None]:
+        """
+        Hold an OS-level exclusive lock while reading, deciding, and rewriting writer.lock,
+        so two agents can never both see "unlocked" and both claim it.
+        The OS drops the lock if the holding process dies, so a crash cannot wedge it.
+        """
+        with open(self.guard_file, "a+b") as fh:
+            fh.seek(0)
+            if os.name == "nt":
+                # LK_LOCK would sleep a full second between its 10 retries, so poll ourselves.
+                deadline = time.time() + 10.0
+                while True:
+                    try:
+                        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                        break
+                    except OSError:
+                        if time.time() >= deadline:
+                            raise TimeoutError(f"Timed out waiting for {self.guard_file}")
+                        time.sleep(0.01)
+            else:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fh.seek(0)
+                if os.name == "nt":
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+    def _write_lock(self, lock_data: Dict[str, Any]) -> bool:
+        """Write lock_data via temp file + replace so readers never see a partial lock."""
+        tmp_file = self.orchestra_dir / f".lock_{uuid.uuid4().hex[:6]}.tmp"
+        try:
+            with open(tmp_file, "w", encoding="utf-8") as f:
+                json.dump(lock_data, f, indent=2)
+            _retry_on_sharing_violation(lambda: tmp_file.replace(self.lock_file))
+            return True
+        except Exception:
+            tmp_file.unlink(missing_ok=True)
+            return False
 
     def acquire(
         self,
@@ -173,72 +253,57 @@ class LockManager:
         Attempt to acquire the active writer lock.
         Returns True if acquired, False if held by another active agent.
         """
-        now = time.time()
-        current = self.get_current_lock()
+        with self._guard():
+            now = time.time()
+            current = self.get_current_lock()
 
-        if current and not force:
-            expires_at = current.get("expires_at", 0)
-            holding_agent = current.get("agent_id")
-            # If not expired and owned by someone else, reject
-            if now < expires_at and holding_agent != agent_id:
-                return False
+            if current and not force:
+                expires_at = current.get("expires_at", 0)
+                holding_agent = current.get("agent_id")
+                # If not expired and owned by someone else, reject
+                if now < expires_at and holding_agent != agent_id:
+                    return False
 
-        lock_data = {
-            "task_id": task_id,
-            "agent_id": agent_id,
-            "scope": scope,
-            "claimed_at": now,
-            "expires_at": now + lease_seconds,
-            "pid": os.getpid(),
-        }
-
-        tmp_file = self.orchestra_dir / f".lock_{uuid.uuid4().hex[:6]}.tmp"
-        try:
-            with open(tmp_file, "w", encoding="utf-8") as f:
-                json.dump(lock_data, f, indent=2)
-            tmp_file.replace(self.lock_file)
-            return True
-        except Exception:
-            if tmp_file.is_file():
-                tmp_file.unlink(missing_ok=True)
-            return False
+            return self._write_lock(
+                {
+                    "task_id": task_id,
+                    "agent_id": agent_id,
+                    "scope": scope,
+                    "claimed_at": now,
+                    "expires_at": now + lease_seconds,
+                    "pid": os.getpid(),
+                }
+            )
 
     def release(self, agent_id: Optional[str] = None, force: bool = False) -> bool:
         """
         Release the active writer lock.
         If agent_id is provided, only releases if that agent owns it (unless force=True).
         """
-        if not self.lock_file.is_file():
-            return True
+        with self._guard():
+            if not self.lock_file.is_file():
+                return True
 
-        current = self.get_current_lock()
-        if current and not force and agent_id:
-            if current.get("agent_id") != agent_id:
+            current = self.get_current_lock()
+            if current and not force and agent_id:
+                if current.get("agent_id") != agent_id:
+                    return False
+
+            try:
+                _retry_on_sharing_violation(lambda: self.lock_file.unlink(missing_ok=True))
+                return True
+            except Exception:
                 return False
-
-        try:
-            self.lock_file.unlink(missing_ok=True)
-            return True
-        except Exception:
-            return False
 
     def heartbeat(self, agent_id: str, extend_seconds: int = 1800) -> bool:
         """Extend lock lease for the holding agent."""
-        current = self.get_current_lock()
-        if not current or current.get("agent_id") != agent_id:
-            return False
+        with self._guard():
+            current = self.get_current_lock()
+            if not current or current.get("agent_id") != agent_id:
+                return False
 
-        current["expires_at"] = time.time() + extend_seconds
-        tmp_file = self.orchestra_dir / f".lock_hb_{uuid.uuid4().hex[:6]}.tmp"
-        try:
-            with open(tmp_file, "w", encoding="utf-8") as f:
-                json.dump(current, f, indent=2)
-            tmp_file.replace(self.lock_file)
-            return True
-        except Exception:
-            if tmp_file.is_file():
-                tmp_file.unlink(missing_ok=True)
-            return False
+            current["expires_at"] = time.time() + extend_seconds
+            return self._write_lock(current)
 
     def get_current_lock(self) -> Optional[Dict[str, Any]]:
         """Return the current lock dictionary, or None if unlocked or corrupt."""
