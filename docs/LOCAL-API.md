@@ -1,7 +1,7 @@
 # Local server and durable sessions (Phase 3)
 
-Phase 3 adds the backend for the future window. It serves HTTP and WebSocket APIs;
-the browser/native UI is Phase 4. It runs one process on your machine, stores local
+Phase 3 supplies the backend used by the Phase 4 [window](WINDOW.md). It serves
+HTTP and WebSocket APIs, runs one process on your machine, and stores local
 conversation history, and uses the existing players and writer-lock engine.
 
 ## Start
@@ -26,7 +26,11 @@ model call was performed for this phase.
 
 ## HTTP
 
-Every route requires `Authorization: Bearer <launch-token>`. Use exactly the printed
+With API-only `serve`, every route requires `Authorization: Bearer <launch-token>`.
+The UI launcher additionally serves an inert public `/` and `/assets/*`, plus
+`POST /api/bootstrap` for its exact-Origin, one-use nonce exchange. Project/session
+APIs stay authenticated in both modes. See [the bootstrap contract](PHASE4-BOOTSTRAP.md).
+Use exactly the printed
 `http://127.0.0.1:<port>` authority. `localhost`, other hosts/ports, foreign or `null`
 Origins, duplicate authorization/authority headers and forwarded-authority headers
 are rejected. An omitted Origin is allowed for native clients with the token.
@@ -42,6 +46,8 @@ misclassified as client mistakes.
 | Method | Path | Body/result |
 |---|---|---|
 | GET | `/api/players` | Local player health and tools-capable OpenRouter catalog; no paid request |
+| GET | `/api/capabilities` | Whether an authenticated native folder picker is available |
+| POST | `/api/folders/pick` | Empty object; native folder path or null, or an error in browser-only mode |
 | GET/POST | `/api/projects` | List projects / add `{"path":"D:/my-project"}` |
 | GET/POST | `/api/projects/{pid}/sessions` | List / create with `player`, optional `model`, `title`, `permission` |
 | POST | `/api/sessions/{sid}/messages` | `{"prompt":"Explain the parser"}` |
@@ -144,7 +150,10 @@ provider resume and Linux/macOS acceptance remain separate checks.
 
 Verified on 2026-11-15 in an isolated Windows Python 3.12 environment with
 Starlette 0.52.1, Uvicorn 0.54.0, websockets 16.1.1 and httpx 0.28.1: the full suite
-ran 127 tests in 61.244 seconds (126 passed, one symlink-privilege skip). A wheel
-was built and installed into that isolated environment, then CLI help and the
-Windows shell bootstrap were verified outside the source tree. No global package
-installation, real model request or credential setup was performed.
+ran 156 tests in 59.413 seconds (155 passed, one symlink-privilege skip), including
+the Phase 4 UI/bootstrap/runtime checks. Browser acceptance uses a fake provider
+over real HTTP/WebSocket and asserts clean server teardown. A wheel with bundled
+UI assets was built and installed into an isolated target for static-shell,
+bootstrap/authentication and runtime shutdown checks. No global installation or
+OpenRouter credential setup is required. Native smoke and other acceptance limits
+are recorded in CHECKPOINT.md; live provider acceptance remains pending.

@@ -1,6 +1,6 @@
 # Agent Orchestra → a simple, self-owned coding-agent app
 
-Status: PR #2 merged into `main` (356effc). Phase 1 implemented for Codex/Claude; Antigravity remains deferred and unverified. Phase 2 implementation/offline wrap-up complete locally; paid OpenRouter acceptance remains pending by owner choice. Phase 3 server/sessions and offline acceptance completed locally on 2026-11-15: 127 tests run, 126 passed, 1 symlink-privilege skip; real local HTTP/WebSocket fake-player disconnect/replay/restart acceptance and installed-wheel smoke passed. Published in PR #3 (implementation 40b06a9) with annotated phase-3-offline tag; PR remains unmerged. Phases 4 to 7 not started. See `CHECKPOINT.md`, `docs/OPENROUTER.md` and `docs/LOCAL-API.md`.
+Status: PR #2 and PR #3 are merged into `main` (5be5bc2). Phase 1 implemented for Codex/Claude; Antigravity remains deferred and unverified. Phase 2/3 offline verification complete; live OpenRouter acceptance remains pending by owner choice. PR #3 review fixes are published as 175eeec in open PR #4. Phase 4 window implementation and offline verification complete locally on codex/phase-4-window, stacked on PR #4; no Phase 4 commit/push. Phases 5 to 7 not started. See `CHECKPOINT.md`, `docs/WINDOW.md`, `docs/OPENROUTER.md` and `docs/LOCAL-API.md`.
 
 ## 1. The goal in one paragraph
 
@@ -189,8 +189,9 @@ PR #3 review follow-up (2026-11-15): merged base `5be5bc2`; local branch
 `codex/openrouter-review-fixes` addresses the ten numbered review findings and
 the smaller startup/snapshot/catalog/error/eviction issues. Final suite: 148 tests
 in 61.640s, 147 passed and one Windows symlink-privilege skip. These follow-up
-changes are uncommitted/unpushed. Phase 4 remains unstarted; its page-entry/token
-design is recorded in `docs/PHASE4-BOOTSTRAP.md` before UI work.
+changes are published in open PR #4 as175eeec. Phase 4 implements the page-entry/token
+design recorded in `docs/PHASE4-BOOTSTRAP.md`; its offline verification results are
+recorded in `CHECKPOINT.md` and its usage guide is `docs/WINDOW.md`.
 
 ### Phase 0: make the engine safe to build on (1 to 2 days)
 
