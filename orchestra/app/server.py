@@ -21,14 +21,14 @@ class BodyTooLarge(RequestError):
     pass
 
 
-async def body(request, allowed):
+async def body(request, allowed, max_size=1024 * 1024):
     if request.headers.get('content-type', '').split(';')[0] != 'application/json':
         raise RequestError('Expected application/json')
     chunks, size = [], 0
     async for chunk in request.stream():
         size += len(chunk)
-        if size > 1024 * 1024:
-            raise BodyTooLarge('Request body exceeds 1 MiB')
+        if size > max_size:
+            raise BodyTooLarge(f'Request body exceeds {max_size} bytes')
         chunks.append(chunk)
     try:
         data = json.loads(b''.join(chunks))
@@ -69,7 +69,7 @@ async def git_read(cwd, *args, limit=1024 * 1024):
         await proc.communicate()
 
 
-def create_app(*, store=None, port, token=None, factory=None):
+def create_app(*, store=None, port, token=None, factory=None, web_dist=None, folder_picker=None):
     if not isinstance(port, int) or not 1 <= port <= 65535:
         raise RequestError('Expected a bound loopback port')
     token = token or secrets.token_urlsafe(32)
@@ -77,6 +77,8 @@ def create_app(*, store=None, port, token=None, factory=None):
         raise RequestError('Launch token must contain at least 24 ASCII characters')
     store = store if store is not None else Store()
     manager = SessionManager(store, **({'factory': factory} if factory is not None else {}))
+    from .ui import BootstrapTokens, public_ui_request, ui_routes
+    bootstrap = BootstrapTokens()
 
     @asynccontextmanager
     async def lifespan(app):
@@ -113,7 +115,19 @@ def create_app(*, store=None, port, token=None, factory=None):
         data = await body(request, {'prompt'})
         sid = request.path_params['sid']
         manager.start(sid, data.get('prompt'))
+        if store.session(sid)['title'] == 'New session':
+            store.update_session(sid, title=data['prompt'].strip().splitlines()[0][:60])
         return JSONResponse({'session_id': sid, 'status': 'running'}, status_code=202)
+
+    async def capabilities(request):
+        return JSONResponse({'native_folder_picker': folder_picker is not None})
+
+    async def pick_folder(request):
+        await body(request, set())
+        if folder_picker is None:
+            raise RequestError('Native folder picker is unavailable; enter the folder path.')
+        path = await asyncio.to_thread(folder_picker)
+        return JSONResponse({'path': str(path) if path else None})
 
     async def cancel(request):
         data = await body(request, {'confirm_stopped'}) if request.headers.get('content-type') else {}
@@ -199,15 +213,20 @@ def create_app(*, store=None, port, token=None, factory=None):
             await asyncio.gather(sending, receiving, return_exceptions=True)
             await stream.aclose()
 
-    app = Starlette(routes=[
+    routes = [
+        Route('/api/capabilities', capabilities), Route('/api/folders/pick', pick_folder, methods=['POST']),
         Route('/api/players', players), Route('/api/projects', projects, methods=['GET', 'POST']),
         Route('/api/projects/{pid}/sessions', sessions, methods=['GET', 'POST']),
         Route('/api/sessions/{sid}/messages', messages, methods=['POST']),
         Route('/api/sessions/{sid}/cancel', cancel, methods=['POST']),
         Route('/api/sessions/{sid}/permissions/{rid}', permission, methods=['POST']),
         Route('/api/sessions/{sid}/diff', diff), Route('/api/settings', settings, methods=['GET', 'PUT']),
-        WebSocketRoute('/api/sessions/{sid}/events', events)],
-        middleware=[Middleware(LocalSecurity, port=port, token=token)],
+        WebSocketRoute('/api/sessions/{sid}/events', events)]
+    if web_dist is not None:
+        routes += ui_routes(web_dist, bootstrap, token, port, body)
+    app = Starlette(routes=routes,
+        middleware=[Middleware(LocalSecurity, port=port, token=token, public=public_ui_request if web_dist is not None else None)],
         exception_handlers={RequestError: error, NotFound: error, Conflict: error}, lifespan=lifespan)
     app.state.store, app.state.manager, app.state.token = store, manager, token
+    app.state.bootstrap = bootstrap
     return app
