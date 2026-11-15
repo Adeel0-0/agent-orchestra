@@ -7,7 +7,8 @@ PR. Current checkpoints/ownership are in CHECKPOINT.md. Live providers stay pend
 Offline implementation/verification completed locally on 2026-11-15: 156 Python
 tests (155 passed, one Windows symlink-permission skip), four frontend unit tests,
 real HTTP/WS fake-provider browser acceptance, native window/folder-picker smoke,
-packaged assets/runtime smoke, and independent review. No Phase 4 commit or push.
+packaged assets/runtime smoke, and independent review. Published as implementation
+09ed7d5 in PR #5, based on PR #4's branch; neither PR has been merged.
 See the final Phase 4 checkpoint for exact results, native smoke limitations and
 the preserved owner-created test history.
 

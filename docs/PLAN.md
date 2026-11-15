@@ -1,6 +1,6 @@
 # Agent Orchestra → a simple, self-owned coding-agent app
 
-Status: PR #2 and PR #3 are merged into `main` (5be5bc2). Phase 1 implemented for Codex/Claude; Antigravity remains deferred and unverified. Phase 2/3 offline verification complete; live OpenRouter acceptance remains pending by owner choice. PR #3 review fixes are published as 175eeec in open PR #4. Phase 4 window implementation and offline verification complete locally on codex/phase-4-window, stacked on PR #4; no Phase 4 commit/push. Phases 5 to 7 not started. See `CHECKPOINT.md`, `docs/WINDOW.md`, `docs/OPENROUTER.md` and `docs/LOCAL-API.md`.
+Status: PR #2 and PR #3 are merged into `main` (5be5bc2). Phase 1 implemented for Codex/Claude; Antigravity remains deferred and unverified. Phase 2/3 offline verification complete; live OpenRouter acceptance remains pending by owner choice. PR #3 review fixes are published as 175eeec in open PR #4. Phase 4 window implementation and offline verification are published as 09ed7d5 in open PR #5 on codex/phase-4-window, stacked on PR #4. Merge #4 first, then retarget #5 to main if needed. Phases 5 to 7 not started. See `CHECKPOINT.md`, `docs/WINDOW.md`, `docs/OPENROUTER.md` and `docs/LOCAL-API.md`.
 
 ## 1. The goal in one paragraph
 
