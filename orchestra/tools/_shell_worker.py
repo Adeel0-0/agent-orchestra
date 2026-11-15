@@ -11,7 +11,8 @@ def main():
     command = json.loads(raw)
     if not isinstance(command, str):
         return 2
-    return subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', command],
+    encoding = '$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); '
+    return subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', encoding + command],
                           stdin=subprocess.DEVNULL).returncode
 
 

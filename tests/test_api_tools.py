@@ -39,10 +39,55 @@ class FileToolsTests(unittest.TestCase):
         self.assertEqual(self.tools.execute('glob', {'pattern': '*.py'}).output, 'main.py')
         self.assertEqual(self.tools.execute('glob', {'pattern': '**/*.py'}).output.splitlines(), ['main.py', 'src/a.py'])
 
+    def test_search_cap_is_visible_even_without_matches(self):
+        from orchestra.tools.fs import FileTools
+        for i in range(3):
+            (self.root / f'{i}.txt').write_text('nothing')
+        for tool, pattern in (('glob', '*.py'), ('grep', 'no match')):
+            result = FileTools(self.root, scan_limit=2).execute(tool, {'pattern': pattern})
+            self.assertIn('scan truncated after 2 files', result.output)
+
     def test_traversal_and_absolute_escape_are_rejected(self):
         for path in ('../outside.txt', str(self.root.parent / 'outside.txt')):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 self.tools.execute('write_file', {'path': path, 'content': 'bad'})
+
+    def test_writes_cannot_modify_git_or_orchestra_metadata(self):
+        for directory in ('.git', '.orchestra', 'nested/.git'):
+            target = self.root / directory / 'config'
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text('original', encoding='utf-8')
+            for tool, args in [('write_file', {'content': 'bad'}), ('edit_file', {'old': 'original', 'new': 'bad'})]:
+                with self.subTest(directory=directory, tool=tool), self.assertRaises(ValueError):
+                    self.tools.execute(tool, {'path': str(target), **args})
+                self.assertEqual(target.read_text(), 'original')
+        with self.assertRaises(ValueError):
+            self.tools.execute('write_file', {'path': '.git/hooks/pre-commit', 'content': 'bad'})
+
+    def test_hardlink_alias_cannot_modify_protected_metadata(self):
+        protected = self.root / '.git' / 'config'
+        protected.parent.mkdir()
+        protected.write_text('original')
+        alias = self.root / 'ordinary.txt'
+        try:
+            os.link(protected, alias)
+        except OSError:
+            self.skipTest('filesystem does not support hardlinks')
+        for name, args in [('write_file', {'content': 'bad'}), ('edit_file', {'old': 'original', 'new': 'bad'})]:
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                self.tools.execute(name, {'path': 'ordinary.txt', **args})
+            self.assertEqual(protected.read_text(), 'original')
+
+    def test_read_file_line_ranges_can_reach_late_content_and_report_remaining(self):
+        (self.root / 'large.py').write_text(''.join(f'line-{i:05d}\n' for i in range(8000)), encoding='utf-8')
+        result = self.tools.execute('read_file', {'path': 'large.py', 'offset': 7000, 'limit': 3}).output
+        self.assertIn('line-07000', result)
+        self.assertIn('line-07002', result)
+        self.assertNotIn('line-07003', result)
+        self.assertIn('997 lines remain', result)
+        for args in ({'offset': -1}, {'limit': 0}, {'offset': True}, {'limit': 2.5}):
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                self.tools.execute('read_file', {'path': 'large.py', **args})
 
     def test_symlink_escape_is_not_read_or_searched(self):
         with tempfile.TemporaryDirectory() as outside:
@@ -93,6 +138,34 @@ class PolicyTests(unittest.TestCase):
 
 
 class ShellTests(unittest.IsolatedAsyncioTestCase):
+    async def test_command_timeout_override_is_bounded(self):
+        from orchestra.tools.shell import ShellTool
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = ShellTool(Path(tmp), timeout=0.01)
+            result = await runner.run('echo extended', timeout=10)
+            self.assertTrue(result.ok, result.output)
+            for invalid in (0, -1, 601, True, '60'):
+                with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                    await runner.run('echo bad', timeout=invalid)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell output encoding')
+    async def test_unicode_output_is_utf8(self):
+        from orchestra.tools.shell import ShellTool
+        with tempfile.TemporaryDirectory() as tmp:
+            result = await ShellTool(Path(tmp)).run("Write-Output 'café ✓'")
+            self.assertTrue(result.ok, result.output)
+            self.assertIn('café ✓', result.output)
+
+    async def test_shell_environment_excludes_secret_suffixes(self):
+        from unittest.mock import patch
+        from orchestra.tools.shell import ShellTool
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {'REVIEW_TEST_TOKEN': 'do-not-inherit', 'REVIEW_TEST_KEY': 'do-not-inherit', 'REVIEW_PUBLIC': 'visible'}):
+            script = Path(tmp) / 'envcheck.py'
+            script.write_text("import os,json\nprint(json.dumps({k:os.environ.get(k) for k in ['REVIEW_TEST_TOKEN','REVIEW_TEST_KEY','REVIEW_PUBLIC']}))\n")
+            command = ('& ' if os.name == 'nt' else '') + f'"{sys.executable}" "{script}"'
+            result = await ShellTool(Path(tmp)).run(command)
+            self.assertTrue(result.ok, result.output)
+            self.assertEqual(json.loads(result.output), {'REVIEW_TEST_TOKEN': None, 'REVIEW_TEST_KEY': None, 'REVIEW_PUBLIC': 'visible'})
     async def test_close_does_not_deadlock_when_live_output_queue_is_full(self):
         from orchestra.tools.shell import ShellTool
         with tempfile.TemporaryDirectory() as tmp:

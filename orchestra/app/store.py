@@ -7,6 +7,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from .errors import RequestError, NotFound
 
 from ..players.base import PERMISSION_MODES
 from ..players.registry import PLAYERS
@@ -80,18 +81,18 @@ class Store:
         with self._guard:
             row = self.db.execute('SELECT * FROM projects WHERE id=?', (pid,)).fetchone()
         if row is None:
-            raise KeyError('Unknown project')
+            raise NotFound('Unknown project')
         return dict(row)
 
     def add_project(self, path):
         if not isinstance(path, str) or not path.strip():
-            raise ValueError('path must be a non-empty folder path')
+            raise RequestError('path must be a non-empty folder path')
         try:
             folder = Path(path).resolve(strict=True)
         except (OSError, ValueError):
-            raise ValueError('Project folder does not exist') from None
+            raise RequestError('Project folder does not exist') from None
         if not folder.is_dir():
-            raise ValueError('Project path must be a folder')
+            raise RequestError('Project path must be a folder')
         normalized = os.path.normcase(str(folder))
         with self._guard, self.db:
             self.db.execute('''INSERT INTO projects VALUES (?,?,?,?)
@@ -102,15 +103,15 @@ class Store:
     def create_session(self, pid, player, model, permission, title='New session', base_commit=None):
         self.project(pid)
         if not isinstance(player, str) or player not in PLAYERS:
-            raise ValueError('Unknown player')
+            raise RequestError('Unknown player')
         if not isinstance(permission, str) or permission not in PERMISSION_MODES:
-            raise ValueError('Unknown permission mode')
+            raise RequestError('Unknown permission mode')
         if model is not None and (not isinstance(model, str) or not model.strip() or len(model) > 256):
-            raise ValueError('model must be a non-empty string or null')
+            raise RequestError('model must be a non-empty string or null')
         if player == 'openrouter' and not model:
-            raise ValueError('OpenRouter requires a model')
+            raise RequestError('OpenRouter requires a model')
         if not isinstance(title, str) or not title.strip() or len(title) > 200:
-            raise ValueError('title must contain 1 to 200 characters')
+            raise RequestError('title must contain 1 to 200 characters')
         sid, now = uuid.uuid4().hex, time.time()
         with self._guard, self.db:
             self.db.execute('INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
@@ -121,7 +122,7 @@ class Store:
         with self._guard:
             row = self.db.execute('SELECT * FROM sessions WHERE id=?', (sid,)).fetchone()
         if row is None:
-            raise KeyError('Unknown session')
+            raise NotFound('Unknown session')
         return dict(row)
 
     def sessions(self, pid):
@@ -132,7 +133,7 @@ class Store:
     def update_session(self, sid, **values):
         self.session(sid)
         if set(values) - {'status', 'title', 'backend_session_id', 'base_commit'}:
-            raise ValueError('Unsupported session update')
+            raise RequestError('Unsupported session update')
         values['updated'] = time.time()
         with self._guard, self.db:
             self.db.execute('UPDATE sessions SET ' + ','.join(f'{k}=?' for k in values) + ' WHERE id=?', [*values.values(), sid])
@@ -163,7 +164,7 @@ class Store:
     def events(self, sid, after=0, limit=1000):
         self.session(sid)
         if not isinstance(after, int) or after < 0 or not 1 <= limit <= 1000:
-            raise ValueError('Invalid event offset or page size')
+            raise RequestError('Invalid event offset or page size')
         with self._guard:
             return [json.loads(r[0]) for r in self.db.execute(
                 'SELECT payload FROM events WHERE session_id=? AND seq>? ORDER BY seq LIMIT ?', (sid, after, limit))]
@@ -185,11 +186,15 @@ class Store:
         return json.loads(row[0]) if row else None
 
     def _repair(self, sid):
+        expected = self.db.execute('SELECT COALESCE(SUM(length(CAST(payload AS BLOB))+1),0) FROM events WHERE session_id=?', (sid,)).fetchone()[0]
+        target = self.transcripts / f'{sid}.jsonl'
+        if target.is_file() and target.stat().st_size == expected:
+            return
         temporary = self.transcripts / f'{sid}.tmp'
         with temporary.open('w', encoding='utf-8', newline='\n') as out:
             for row in self.db.execute('SELECT payload FROM events WHERE session_id=? ORDER BY seq', (sid,)):
                 out.write(row[0] + '\n')
-        temporary.replace(self.transcripts / f'{sid}.jsonl')
+        temporary.replace(target)
 
     def settings(self):
         result = {'default_player': 'codex', 'permission': 'edit'}
@@ -199,10 +204,10 @@ class Store:
 
     def set_settings(self, values):
         if not isinstance(values, dict) or set(values) - {'default_player', 'permission'}:
-            raise ValueError('Settings accept only default_player and permission; credentials use the OS keyring')
+            raise RequestError('Settings accept only default_player and permission; credentials use the OS keyring')
         player, permission = values.get('default_player', 'codex'), values.get('permission', 'edit')
         if not isinstance(player, str) or player not in PLAYERS or not isinstance(permission, str) or permission not in PERMISSION_MODES:
-            raise ValueError('Unknown player or permission mode')
+            raise RequestError('Unknown player or permission mode')
         with self._guard, self.db:
             for key, value in values.items():
                 self.db.execute('INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, json.dumps(value)))

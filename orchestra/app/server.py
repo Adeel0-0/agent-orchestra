@@ -14,15 +14,16 @@ from starlette.websockets import WebSocketDisconnect
 from .security import LocalSecurity
 from .sessions import SessionManager, Conflict, SlowSubscriber
 from .store import Store
+from .errors import RequestError, NotFound
 
 
-class BodyTooLarge(ValueError):
+class BodyTooLarge(RequestError):
     pass
 
 
 async def body(request, allowed):
     if request.headers.get('content-type', '').split(';')[0] != 'application/json':
-        raise ValueError('Expected application/json')
+        raise RequestError('Expected application/json')
     chunks, size = [], 0
     async for chunk in request.stream():
         size += len(chunk)
@@ -32,9 +33,9 @@ async def body(request, allowed):
     try:
         data = json.loads(b''.join(chunks))
     except (ValueError, UnicodeError):
-        raise ValueError('Invalid JSON body') from None
+        raise RequestError('Invalid JSON body') from None
     if not isinstance(data, dict) or set(data) - set(allowed):
-        raise ValueError('Unexpected request fields')
+        raise RequestError('Unexpected request fields')
     return data
 
 
@@ -59,7 +60,7 @@ async def git_read(cwd, *args, limit=1024 * 1024):
         output, truncated = await asyncio.wait_for(read(), timeout=10)
         return output.decode('utf-8', errors='replace') if output is not None else None, truncated
     except asyncio.TimeoutError:
-        raise ValueError('Git inspection timed out') from None
+        raise RequestError('Git inspection timed out') from None
     finally:
         if proc.returncode is None:
             proc.kill()
@@ -70,10 +71,10 @@ async def git_read(cwd, *args, limit=1024 * 1024):
 
 def create_app(*, store=None, port, token=None, factory=None):
     if not isinstance(port, int) or not 1 <= port <= 65535:
-        raise ValueError('Expected a bound loopback port')
+        raise RequestError('Expected a bound loopback port')
     token = token or secrets.token_urlsafe(32)
     if not isinstance(token, str) or not token.isascii() or len(token) < 24:
-        raise ValueError('Launch token must contain at least 24 ASCII characters')
+        raise RequestError('Launch token must contain at least 24 ASCII characters')
     store = store if store is not None else Store()
     manager = SessionManager(store, **({'factory': factory} if factory is not None else {}))
 
@@ -86,7 +87,7 @@ def create_app(*, store=None, port, token=None, factory=None):
             store.close()
 
     async def error(request, exc):
-        status = 413 if isinstance(exc, BodyTooLarge) else 404 if isinstance(exc, KeyError) else 409 if isinstance(exc, Conflict) else 400
+        status = 413 if isinstance(exc, BodyTooLarge) else 404 if isinstance(exc, NotFound) else 409 if isinstance(exc, Conflict) else 400
         return JSONResponse({'error': exc.args[0] if exc.args else 'Invalid request'}, status_code=status)
 
     async def projects(request):
@@ -157,7 +158,7 @@ def create_app(*, store=None, port, token=None, factory=None):
         output, truncated = await git_read(cwd, 'diff', '--no-ext-diff', '--no-textconv', session['base_commit'], '--')
         untracked, more = await git_read(cwd, 'ls-files', '--others', '--exclude-standard', '-z')
         if output is None:
-            raise ValueError('Git diff is unavailable; the saved base may no longer exist')
+            raise RequestError('Git diff is unavailable; the saved base may no longer exist')
         return JSONResponse({'base_commit': session['base_commit'], 'diff': output,
             'untracked': [p for p in (untracked or '').split('\x00') if p], 'truncated': truncated or more})
 
@@ -166,7 +167,7 @@ def create_app(*, store=None, port, token=None, factory=None):
         try:
             after = int(websocket.query_params.get('after', '0'))
             if not 0 <= after <= store.last_seq(sid):
-                raise ValueError('Invalid replay offset')
+                raise RequestError('Invalid replay offset')
         except (KeyError, ValueError):
             await websocket.close(code=1008)
             return
@@ -207,6 +208,6 @@ def create_app(*, store=None, port, token=None, factory=None):
         Route('/api/sessions/{sid}/diff', diff), Route('/api/settings', settings, methods=['GET', 'PUT']),
         WebSocketRoute('/api/sessions/{sid}/events', events)],
         middleware=[Middleware(LocalSecurity, port=port, token=token)],
-        exception_handlers={ValueError: error, KeyError: error, Conflict: error}, lifespan=lifespan)
+        exception_handlers={RequestError: error, NotFound: error, Conflict: error}, lifespan=lifespan)
     app.state.store, app.state.manager, app.state.token = store, manager, token
     return app

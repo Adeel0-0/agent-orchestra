@@ -50,6 +50,16 @@ class StoreTests(unittest.TestCase):
         self.store = Store(self.root / 'data')
         self.assertEqual(json.loads(path.read_text())['text'], 'durable')
 
+    def test_startup_keeps_complete_transcript_file_untouched(self):
+        from orchestra.app.store import Store
+        sid = self.session()['id']
+        self.store.append(sid, {'type': 'text.delta', 'text': 'keep'})
+        path = self.root / 'data' / 'sessions' / f'{sid}.jsonl'
+        stamp = path.stat().st_mtime_ns
+        self.store.close()
+        self.store = Store(self.root / 'data')
+        self.assertEqual(path.stat().st_mtime_ns, stamp)
+
     def test_restart_marks_running_session_interrupted_once(self):
         from orchestra.app.store import Store
         sid = self.session()['id']
