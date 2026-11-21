@@ -32,3 +32,7 @@ venv.bak/
 .DS_Store
 Thumbs.db
 
+
+# Go binary build output
+/orchestra.exe
+/bin/

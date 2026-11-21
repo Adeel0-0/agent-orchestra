@@ -92,6 +92,39 @@ The config is checked strictly. An unknown key (such as a typo like `auto_psuh`)
 
 ---
 
+## 🦫 Go binary
+
+The same CLI is also available as a single static binary with no runtime to install. It lives next to the Python package (`go.mod`, `cmd/orchestra/`, `internal/`) and uses the same `.orchestra/` files. The Python CLI and the Go binary can run against the same folder at the same time: they exclude each other through the same OS lock on `writer.lock.guard`.
+
+Build (Go 1.22 or newer):
+
+```bash
+go build ./cmd/orchestra
+```
+
+On Windows this produces `orchestra.exe`. On Linux and macOS the default output name `orchestra` clashes with the Python package folder, so name it explicitly:
+
+```bash
+go build -o bin/orchestra ./cmd/orchestra
+```
+
+Install into `$GOPATH/bin` (on your `PATH`):
+
+```bash
+go install github.com/Adeel0-0/agent-orchestra/cmd/orchestra@latest
+```
+
+The subcommands, flags, defaults, `[OK]`/`[FAILED]` messages and exit codes are the same as the Python CLI (`status`, `claim`, `release`, `emit`, `listen`, `run`, `start`, `init`). Differences:
+
+- **Strict config validation is not in the Go version yet.** Unknown keys in `orchestra.json` are ignored instead of rejected. A file that cannot be parsed still fails, with exit code 1 (Python uses 2).
+- YAML configs (`orchestra.yaml`) are not supported; use `orchestra.json`.
+- `orchestra run script.py` uses `python`, `python3` or `py -3` from `PATH`.
+- On Windows each pipeline command runs in a Job Object. A timeout ends the whole process tree, and closing the job also ends any background process a finished command left behind.
+
+Tests: `go test ./...` (cross-language tests run against the Python CLI when `python` is on `PATH`, and are skipped otherwise).
+
+---
+
 ## 🛠️ How Agents Communicate
 
 Agents interact with the Orchestra using simple CLI commands or the Python API:

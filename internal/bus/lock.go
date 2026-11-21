@@ -71,6 +71,13 @@ func (m *LockManager) withGuard(fn func() (bool, error)) (bool, error) {
 	return ok, fnErr
 }
 
+// WithGuard runs fn while holding the guard lock. Tests use it to prove that a
+// Go holder blocks a Python claimant on the same .orchestra folder.
+func (m *LockManager) WithGuard(fn func() error) error {
+	_, err := m.withGuard(func() (bool, error) { return true, fn() })
+	return err
+}
+
 // Acquire claims the writer lock. It refuses (false, nil) when an unexpired lock is
 // held by a different agent, unless force. The same agent claiming again refreshes the lease.
 func (m *LockManager) Acquire(taskID, agentID, scope string, leaseSeconds int, force bool) (bool, error) {

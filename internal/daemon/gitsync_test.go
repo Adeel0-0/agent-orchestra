@@ -30,7 +30,9 @@ func (f *remoteFixture) pushingDaemon() *Daemon {
 	return d
 }
 
-func (f *remoteFixture) originSHA(branch string) string { return git(f.t, f.origin, "rev-parse", branch) }
+func (f *remoteFixture) originSHA(branch string) string {
+	return git(f.t, f.origin, "rev-parse", branch)
+}
 
 func syncFailures(d *Daemon) []string {
 	steps := []string{}
