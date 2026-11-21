@@ -456,3 +456,14 @@ This is the current recovery state and supersedes earlier STOP/continuation next
 - **Owner decisions open:** (1) whether to commit/push this work and where (branch `codex/phase-4-window` is merged; a new branch from main is cleaner); (2) `classify_error` still owner-reserved.
 - **Running processes:** none (all test trees verified gone). Disposable folders left in the scratchpad.
 - **Next concrete action:** owner answers the decisions above. Then OpenRouter: `python -m pip install -e ".[openrouter]"`, owner runs `python -m orchestra openrouter-key` privately, then the read-only approve/deny run in `docs/OPENROUTER.md`.
+
+## ECC vendoring — 2026-11-21
+
+- **Status:** COMPLETE. Committed on this branch at the owner's request (2026-11-21), not pushed. Owner asked to "implement" https://github.com/affaan-m/ECC for this project. Writer ownership released.
+- **Branch/base:** `claude/ecc-project-implementation-fa1178` at `310d7f4` (worktree `D:\agent-orchestra\.claude\worktrees\ecc-project-implementation-fa1178`).
+- **Decision:** Vendored a curated, project-local subset of ECC (upstream commit `4adeee6`, MIT) into `.claude/` instead of a global plugin or `npx ecc-universal` install. No hooks were installed. Project rules in `.claude/rules/agent-orchestra.md` override ECC: stdlib-only core, unittest not pytest, keyring secrets, no automatic git actions, CHECKPOINT.md as the ledger.
+- **Changed files:** `.claude/{agents,skills,commands,rules}/…`, `.claude/ECC-LICENSE`, `docs/ECC.md` (what is included or excluded, and how to update), and `.gitignore` (adds `.claude/settings.local.json`). All files are included in the commit.
+- **Checks:** `python -m unittest discover tests`: 148 tests, OK (1 skip). `git diff --check` is clean. Frontmatter parsed for 13 agent/command/skill files. Scanned the vendored files for hidden characters (none found) and for side-effect commands.
+- **Not verified:** A fresh Claude Code session picking up `.claude/rules/` and the `ecc-` commands. ECC hooks were not evaluated by running them.
+- **Next:** Owner decides whether to push or open a PR, and whether ECC hooks are wanted.
+- **Merged with main (2026-11-22):** `origin/main` (`519a9b0`, includes PR #8) merged into this branch to clear PR #6 conflicts. Only `CHECKPOINT.md` conflicted (both sides appended sections); both kept, main history first. `.gitignore` merged cleanly. This branch is pushed in PR #6; the "not pushed" status above is history.
