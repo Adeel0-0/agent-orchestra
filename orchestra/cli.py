@@ -268,6 +268,17 @@ def cmd_serve(args: argparse.Namespace) -> int:
         return 130
 
 
+def cmd_ui(args: argparse.Namespace) -> int:
+    from .app.launcher import launch_ui
+    try:
+        return launch_ui(data_dir=args.data_dir, browser=args.browser)
+    except (RuntimeError, OSError) as exc:
+        print(f'[FAILED] {exc}', file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        return 130
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     cfg = OrchestraConfig()
     target = Path("orchestra.json")
@@ -280,6 +291,9 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if not arguments or arguments[0] == '--browser':
+        arguments.insert(0, 'ui')
     parser = argparse.ArgumentParser(
         prog="orchestra",
         description="Autonomous Multi-Agent Orchestration & IPC Event Bus",
@@ -351,6 +365,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     p_serve.add_argument('--data-dir', default=None, help='Private data directory (default: ~/.orchestra)')
     p_serve.set_defaults(func=cmd_serve)
 
+    p_ui = subparsers.add_parser('ui', help='Open the local agent workspace')
+    p_ui.add_argument('--data-dir', default=None, help='Private data directory (default: ~/.orchestra)')
+    p_ui.add_argument('--browser', action='store_true', help='Open in the default browser instead of a native window')
+    p_ui.set_defaults(func=cmd_ui)
+
     # chat
     p_chat = subparsers.add_parser("chat", help="Chat with an agent in a project folder")
     p_chat.add_argument("prompt", nargs="*", help="One prompt to run and exit ('-' reads stdin). Omit for a conversation")
@@ -371,7 +390,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             except Exception:
                 pass
 
-    parsed = parser.parse_args(argv)
+    parsed = parser.parse_args(arguments)
     try:
         return parsed.func(parsed)
     except ConfigError as exc:
