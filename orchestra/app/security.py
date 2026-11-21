@@ -3,10 +3,11 @@ import secrets
 
 
 class LocalSecurity:
-    def __init__(self, app, port, token):
+    def __init__(self, app, port, token, public=None):
         self.app, self.token = app, token
         self.host = f'127.0.0.1:{port}'.encode('ascii')
         self.origin = b'http://' + self.host
+        self.public = public
 
     async def __call__(self, scope, receive, send):
         if scope['type'] not in {'http', 'websocket'}:
@@ -29,7 +30,8 @@ class LocalSecurity:
                 if 'orchestra' in candidates and len(tokens) == 1:
                     supplied = tokens[0]
         authenticated = supplied.isascii() and secrets.compare_digest(supplied, self.token)
-        if not authority_ok or not authenticated:
+        public = self.public(scope) if self.public is not None else False
+        if not authority_ok or not (authenticated or public):
             if scope['type'] == 'websocket':
                 await send({'type': 'websocket.close', 'code': 1008})
             else:
@@ -42,6 +44,7 @@ class LocalSecurity:
         async def secure_send(message):
             if message['type'] == 'http.response.start':
                 message['headers'] = [*message.get('headers', []), (b'cache-control', b'no-store'),
-                    (b'x-content-type-options', b'nosniff'), (b'referrer-policy', b'no-referrer')]
+                    (b'x-content-type-options', b'nosniff'), (b'referrer-policy', b'no-referrer'),
+                    (b'content-security-policy', b"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ws://" + self.host + b"; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")]
             await send(message)
         await self.app(scope, receive, secure_send)

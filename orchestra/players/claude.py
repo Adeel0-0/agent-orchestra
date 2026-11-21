@@ -17,7 +17,11 @@ from .base import (
     TOOL_STARTED, USAGE, CliPlayer, Event, Mapper,
 )
 
-_PERMISSION = {"read-only": "plan", "edit": "acceptEdits", "full": "bypassPermissions"}
+# "edit" is Claude Code's auto mode: edits and commands run without prompting, and Claude
+# Code's own safety checker blocks risky actions. acceptEdits was tried first, but headless
+# it refuses every shell command (tests could not run), and Claude Code's sandbox is not
+# active on Windows, so there is no sandboxed alternative. Owner decision, 2026-11-21.
+_PERMISSION = {"read-only": "plan", "edit": "auto", "full": "bypassPermissions"}
 _EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 
 
@@ -71,7 +75,10 @@ class ClaudeMapper(Mapper):
                 if output:
                     events.append(Event(TOOL_OUTPUT, {"id": tid, "chunk": output}))
                 if ok and tid in self._edits:
-                    events.append(Event(FILE_CHANGED, {"path": self.rel_path(self._edits.pop(tid)), "kind": "update"}))
+                    # Claude's Write reports "File created successfully at: ..." for a new file.
+                    created = output.lstrip().lower().startswith("file created")
+                    events.append(Event(FILE_CHANGED, {"path": self.rel_path(self._edits.pop(tid)),
+                                                       "kind": "add" if created else "update"}))
                 events.append(Event(TOOL_FINISHED, {"id": tid, "ok": ok}))
             return events
 

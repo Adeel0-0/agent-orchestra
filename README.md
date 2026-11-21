@@ -69,6 +69,35 @@ agent-orchestra/
 
 ## 🚀 Quickstart
 
+### Open the coding-agent app
+
+```powershell
+python -m pip install -e ".[desktop]"
+# Source checkout only: build the bundled frontend once.
+cd web
+npm ci
+npm run build
+cd ..
+python -m orchestra
+```
+
+No arguments opens the native window. `python -m orchestra ui --browser` opens the
+same app in your browser using `.[app]` dependencies; enter a local folder path
+there. The native window uses the OS folder picker. Packaged wheels include the
+built frontend and do not need Node. Agent CLIs must already be installed and
+signed in; the first-run screen reports their health. OpenRouter setup remains a
+separate hidden keyring prompt and an explicitly selected model.
+
+The window provides projects/sessions, streaming chat and approvals, a composer
+with agent/model selection, changed-file diffs, settings and light/dark themes.
+Changing agent/model starts a fresh session. Closing the native window stops its
+local server and agents; browser mode stops with terminal Ctrl+C. Reloading a page
+requires relaunching the app for a fresh one-use bootstrap link. See
+[the Phase 4 window guide](docs/WINDOW.md) for verification and limitations.
+
+The original coordination commands remain available below. Phase 4 is verified
+offline with fake providers; real provider acceptance is still pending.
+
 ### 1. Installation
 
 Run directly with Python, or install in editable mode:
@@ -109,7 +138,18 @@ orchestra chat -r <session-id> "and now add tests"   # continue a previous sessi
 | `antigravity` | Google AI Pro / Ultra | Antigravity CLI (`agy`), signed in once interactively |
 | `claude` | Claude Pro / Max | Claude Code, signed in |
 
-`-p` sets what the agent may do: `read-only`, `edit` (default, changes files inside the project) or `full` (no limits). `--json` prints the normalized event stream instead of formatted text. Ctrl+C stops the current turn and the agent's processes.
+`-p` sets what the agent may do: `read-only`, `edit` (default) or `full` (no limits). `--json` prints the normalized event stream instead of formatted text. Ctrl+C stops the current turn and the agent's processes.
+
+What `edit` means for each agent, checked against the real CLIs on 2026-11-21:
+
+| Agent | `edit` uses | Edits files | Runs commands |
+|---|---|---|---|
+| Codex | `-s workspace-write` | yes | yes, in Codex's sandbox |
+| Antigravity | `--sandbox` | yes | yes, in Antigravity's sandbox |
+| Claude Code | `--permission-mode auto` | yes | yes, **not sandboxed**; Claude Code's own safety checker blocks risky actions (its sandbox is not available on Windows) |
+| OpenRouter | Orchestra's own policy | yes | asks first |
+
+`read-only` maps to each CLI's plan or read-only mode; `full` turns off every check.
 
 ---
 
@@ -261,7 +301,8 @@ then `python -m orchestra openrouter-key`, `python -m orchestra models` and
 
 The Phase 3 [local API](docs/LOCAL-API.md) provides durable sessions and protected
 HTTP/WebSocket access. Install `.[app]` and run `python -m orchestra serve`; it prints
-a random loopback URL and private launch token. The window/UI is still Phase 4.
+a random loopback URL and private launch token. Use `orchestra ui` for the
+[Phase 4 window](docs/WINDOW.md).
 
 ## 🧪 Running Unit Tests
 

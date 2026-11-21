@@ -23,7 +23,8 @@ from .players.registry import check, get_player
 class Renderer:
     """Prints events for a human. Keeps nothing but what it needs to lay out lines."""
 
-    def __init__(self, out: TextIO = sys.stdout, color: Optional[bool] = None, login_hint: str = "") -> None:
+    def __init__(self, out: TextIO = sys.stdout, color: Optional[bool] = None, login_hint: str = "",
+                 cwd: Optional[Path] = None) -> None:
         self.out = out
         if color is None:
             color = out.isatty() and not os.environ.get("NO_COLOR")
@@ -31,6 +32,7 @@ class Renderer:
             os.system("")  # turns on ANSI escape handling in older Windows consoles
         self.color = color
         self.login_hint = login_hint
+        self.cwd = Path(cwd).resolve() if cwd else None
         self.mid_line = False
         self.usage: Dict[str, object] = {}
 
@@ -44,18 +46,42 @@ class Renderer:
         self.out.write(text + "\n")
         self.out.flush()
 
-    @staticmethod
-    def _summary(data: Dict[str, object]) -> str:
+    _PATH_KEYS = ("file_path", "Path", "path", "TargetFile", "AbsolutePath", "notebook_path")
+    _TEXT_KEYS = ("command", "CommandLine", "pattern", "url")
+    _WIDTH = 100
+
+    def _short_path(self, value: str) -> str:
+        """Project files relative to the project; long paths keep their end, where the file name is."""
+        if self.cwd:
+            try:
+                value = str(Path(value).resolve().relative_to(self.cwd))
+            except (ValueError, OSError):
+                pass
+        if len(value) > self._WIDTH:
+            value = "..." + value[-(self._WIDTH - 3):]
+        return value
+
+    def _short_text(self, value: str) -> str:
+        """One line: a multi-line command would otherwise break the layout."""
+        value = " ; ".join(part.strip() for part in value.splitlines() if part.strip())
+        if len(value) > self._WIDTH:
+            value = value[: self._WIDTH - 3] + "..."
+        return value
+
+    def _summary(self, data: Dict[str, object]) -> str:
         inp = data.get("input") or {}
-        if isinstance(inp, dict):
-            for key in ("command", "CommandLine", "file_path", "path", "pattern", "url"):
-                if inp.get(key):
-                    return str(inp[key])
-            if inp.get("paths"):
-                return ", ".join(map(str, inp["paths"]))
-            text = json.dumps(inp, ensure_ascii=False)
-            return "" if text == "{}" else text
-        return str(inp)
+        if not isinstance(inp, dict):
+            return self._short_text(str(inp))
+        for key in self._TEXT_KEYS:
+            if inp.get(key):
+                return self._short_text(str(inp[key]))
+        for key in self._PATH_KEYS:
+            if isinstance(inp.get(key), str) and inp[key]:
+                return self._short_path(inp[key])
+        if inp.get("paths"):
+            return self._short_text(", ".join(self._short_path(str(x)) for x in inp["paths"]))
+        text = json.dumps(inp, ensure_ascii=False)
+        return "" if text == "{}" else self._short_text(text)
 
     def show(self, evt: Event) -> None:
         d = evt.data
@@ -65,8 +91,6 @@ class Renderer:
             self.mid_line = not d["text"].endswith("\n")
         elif evt.type == base.TOOL_STARTED:
             summary = self._summary(d)
-            if len(summary) > 100:
-                summary = summary[:97] + "..."
             self._line(self._c("36", f"  > {d.get('name')}") + (f" {self._c('2', summary)}" if summary else ""))
         elif evt.type == base.TOOL_OUTPUT:
             lines = str(d.get("chunk", "")).rstrip().splitlines()
@@ -161,7 +185,7 @@ def chat(
         print(f"  fix: {health.fix}", file=sys.stderr)
         return 2
 
-    renderer = None if as_json else Renderer(login_hint=player_cls.login_hint)
+    renderer = None if as_json else Renderer(login_hint=player_cls.login_hint, cwd=cwd)
 
     if prompt is not None:
         ok = _turn(player, prompt, renderer, as_json)
