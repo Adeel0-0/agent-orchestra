@@ -167,6 +167,118 @@ def cmd_start(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    from .players.registry import check_all
+
+    results = check_all()
+    if args.json:
+        print(json.dumps([{**r.__dict__, "ready": r.ready} for r in results], indent=2))
+        return 0 if any(r.ready for r in results) else 1
+
+    for r in results:
+        if not r.path:
+            state = "not installed"
+        elif r.logged_in is False:
+            state = "not logged in"
+        elif r.logged_in is None:
+            state = "installed (login not checkable; run it once to sign in)"
+        else:
+            state = "ready"
+        print(f"{r.name:<30} {state}")
+        if r.version:
+            print(f"{'':<30} {r.version}")
+        if r.fix:
+            print(f"{'':<30} fix: {r.fix}")
+    return 0 if any(r.ready for r in results) else 1
+
+
+def cmd_chat(args: argparse.Namespace) -> int:
+    from .chat import chat
+
+    cwd = Path(args.cwd).resolve()
+    if not cwd.is_dir():
+        print(f"[FAILED] Not a folder: {cwd}", file=sys.stderr)
+        return 2
+    prompt = " ".join(args.prompt) if args.prompt else None
+    if prompt == "-":
+        prompt = sys.stdin.read()
+    try:
+        return chat(
+            agent=args.agent,
+            prompt=prompt,
+            cwd=cwd,
+            model=args.model,
+            permission=args.permission,
+            resume=args.resume,
+            as_json=args.json,
+        )
+    except (KeyError, ValueError) as exc:
+        print(f"[FAILED] {exc.args[0]}", file=sys.stderr)
+        return 2
+
+
+def cmd_openrouter_key(args: argparse.Namespace) -> int:
+    from getpass import getpass, GetPassWarning
+    import warnings
+    from .players.credentials import set_key, CredentialError
+
+    if not sys.stdin.isatty():
+        print('Run orchestra openrouter-key in an interactive terminal; the key is entered hidden.', file=sys.stderr)
+        return 2
+    try:
+        # Refuse getpass fallback that could echo the secret.
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', GetPassWarning)
+            value = getpass('OpenRouter API key (hidden): ')
+        set_key(value)
+        print('OpenRouter key saved in the OS keyring.')
+        return 0
+    except (CredentialError, GetPassWarning) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    except (EOFError, KeyboardInterrupt):
+        print('Key setup cancelled.', file=sys.stderr)
+        return 130
+
+
+def cmd_models(args: argparse.Namespace) -> int:
+    import asyncio
+    from .players.openrouter_client import OpenRouterClient, OpenRouterError
+    try:
+        models = asyncio.run(OpenRouterClient().models())
+    except OpenRouterError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(models, ensure_ascii=False))
+    else:
+        for model in models:
+            print(f"{model['id']:<55} context: {model.get('context_length', '?')}")
+    return 0
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    from .app.launcher import serve
+    try:
+        return serve(args.data_dir)
+    except (RuntimeError, OSError) as exc:
+        print(f'[FAILED] {exc}', file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        return 130
+
+
+def cmd_ui(args: argparse.Namespace) -> int:
+    from .app.launcher import launch_ui
+    try:
+        return launch_ui(data_dir=args.data_dir, browser=args.browser)
+    except (RuntimeError, OSError) as exc:
+        print(f'[FAILED] {exc}', file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        return 130
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     cfg = OrchestraConfig()
     target = Path("orchestra.json")
@@ -179,6 +291,9 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if not arguments or arguments[0] == '--browser':
+        arguments.insert(0, 'ui')
     parser = argparse.ArgumentParser(
         prog="orchestra",
         description="Autonomous Multi-Agent Orchestration & IPC Event Bus",
@@ -235,7 +350,47 @@ def main(argv: Optional[list[str]] = None) -> int:
     p_init.add_argument("--force", action="store_true", help="Overwrite existing configuration")
     p_init.set_defaults(func=cmd_init)
 
-    parsed = parser.parse_args(argv)
+    # doctor
+    p_doctor = subparsers.add_parser("doctor", help="Check which agent CLIs are installed and logged in")
+    p_doctor.add_argument("--json", action="store_true", help="Output as JSON")
+    p_doctor.set_defaults(func=cmd_doctor)
+
+    p_key = subparsers.add_parser('openrouter-key', help='Save the OpenRouter key in the OS keyring (hidden terminal input)')
+    p_key.set_defaults(func=cmd_openrouter_key)
+    p_models = subparsers.add_parser('models', help='List OpenRouter models that support tools (public catalog; no key needed)')
+    p_models.add_argument('--json', action='store_true', help='Output catalog metadata as JSON')
+    p_models.set_defaults(func=cmd_models)
+
+    p_serve = subparsers.add_parser('serve', help='Start the protected local HTTP/WebSocket API (no UI yet)')
+    p_serve.add_argument('--data-dir', default=None, help='Private data directory (default: ~/.orchestra)')
+    p_serve.set_defaults(func=cmd_serve)
+
+    p_ui = subparsers.add_parser('ui', help='Open the local agent workspace')
+    p_ui.add_argument('--data-dir', default=None, help='Private data directory (default: ~/.orchestra)')
+    p_ui.add_argument('--browser', action='store_true', help='Open in the default browser instead of a native window')
+    p_ui.set_defaults(func=cmd_ui)
+
+    # chat
+    p_chat = subparsers.add_parser("chat", help="Chat with an agent in a project folder")
+    p_chat.add_argument("prompt", nargs="*", help="One prompt to run and exit ('-' reads stdin). Omit for a conversation")
+    p_chat.add_argument("--agent", "-a", default="codex", help="codex, antigravity, claude or openrouter (default: codex)")
+    p_chat.add_argument("--model", "-m", default=None, help="Model name for that agent")
+    p_chat.add_argument("--permission", "-p", default="edit", choices=["read-only", "edit", "full"],
+                        help="CLI sandbox mode. OpenRouter: read-only asks before writes/commands; edit accepts writes, asks for commands; full accepts all tools")
+    p_chat.add_argument("--cwd", "-C", default=".", help="Project folder (default: current folder)")
+    p_chat.add_argument("--resume", "-r", default=None, help="Continue a previous session by id")
+    p_chat.add_argument("--json", action="store_true", help="Print normalized events as JSON lines")
+    p_chat.set_defaults(func=cmd_chat)
+
+    # Windows consoles default to a legacy code page; force UTF-8 output.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except Exception:
+                pass
+
+    parsed = parser.parse_args(arguments)
     try:
         return parsed.func(parsed)
     except ConfigError as exc:
@@ -243,10 +398,5 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 2
 
 
-if hasattr(sys.stdout, "reconfigure"):
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-        sys.stderr.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
+if __name__ == "__main__":
     sys.exit(main())

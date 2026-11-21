@@ -69,6 +69,35 @@ agent-orchestra/
 
 ## 🚀 Quickstart
 
+### Open the coding-agent app
+
+```powershell
+python -m pip install -e ".[desktop]"
+# Source checkout only: build the bundled frontend once.
+cd web
+npm ci
+npm run build
+cd ..
+python -m orchestra
+```
+
+No arguments opens the native window. `python -m orchestra ui --browser` opens the
+same app in your browser using `.[app]` dependencies; enter a local folder path
+there. The native window uses the OS folder picker. Packaged wheels include the
+built frontend and do not need Node. Agent CLIs must already be installed and
+signed in; the first-run screen reports their health. OpenRouter setup remains a
+separate hidden keyring prompt and an explicitly selected model.
+
+The window provides projects/sessions, streaming chat and approvals, a composer
+with agent/model selection, changed-file diffs, settings and light/dark themes.
+Changing agent/model starts a fresh session. Closing the native window stops its
+local server and agents; browser mode stops with terminal Ctrl+C. Reloading a page
+requires relaunching the app for a fresh one-use bootstrap link. See
+[the Phase 4 window guide](docs/WINDOW.md) for verification and limitations.
+
+The original coordination commands remain available below. Phase 4 is verified
+offline with fake providers; real provider acceptance is still pending.
+
 ### 1. Installation
 
 Run directly with Python, or install in editable mode:
@@ -89,6 +118,38 @@ orchestra init
 This generates an `orchestra.json` configuration in your root directory.
 
 The config is checked strictly. An unknown key (such as a typo like `auto_psuh`), a malformed file, or a section that isn't an object stops every command with an error naming the problem. Keys you leave out keep their defaults. `workspace_root` is resolved relative to the folder holding the config file.
+
+---
+
+## 💬 Chat with an Agent from the Terminal
+
+Orchestra drives the official agent CLIs with your existing logins, so ChatGPT Plus or Google AI Pro subscriptions are used directly, with no API keys.
+
+```bash
+orchestra doctor                      # which agents are installed and logged in
+orchestra chat "explain this repo"    # one turn with Codex (ChatGPT) in the current folder
+orchestra chat -a claude -C ../app    # a conversation with Claude Code in another folder
+orchestra chat -r <session-id> "and now add tests"   # continue a previous session
+```
+
+| Agent (`-a`) | Account | Needs |
+|---|---|---|
+| `codex` (default) | ChatGPT Plus / Pro | `npm install -g @openai/codex`, then `codex login` |
+| `antigravity` | Google AI Pro / Ultra | Antigravity CLI (`agy`), signed in once interactively |
+| `claude` | Claude Pro / Max | Claude Code, signed in |
+
+`-p` sets what the agent may do: `read-only`, `edit` (default) or `full` (no limits). `--json` prints the normalized event stream instead of formatted text. Ctrl+C stops the current turn and the agent's processes.
+
+What `edit` means for each agent, checked against the real CLIs on 2026-11-21:
+
+| Agent | `edit` uses | Edits files | Runs commands |
+|---|---|---|---|
+| Codex | `-s workspace-write` | yes | yes, in Codex's sandbox |
+| Antigravity | `--sandbox` | yes | yes, in Antigravity's sandbox |
+| Claude Code | `--permission-mode auto` | yes | yes, **not sandboxed**; Claude Code's own safety checker blocks risky actions (its sandbox is not available on Windows) |
+| OpenRouter | Orchestra's own policy | yes | asks first |
+
+`read-only` maps to each CLI's plan or read-only mode; `full` turns off every check.
 
 ---
 
@@ -114,7 +175,7 @@ Install into `$GOPATH/bin` (on your `PATH`):
 go install github.com/Adeel0-0/agent-orchestra/cmd/orchestra@latest
 ```
 
-The subcommands, flags, defaults, `[OK]`/`[FAILED]` messages and exit codes are the same as the Python CLI (`status`, `claim`, `release`, `emit`, `listen`, `run`, `start`, `init`). Differences:
+The Go binary covers the engine commands: `status`, `claim`, `release`, `emit`, `listen`, `run`, `start` and `init`, with the same flags, defaults, `[OK]`/`[FAILED]` messages and exit codes as the Python CLI. The agent and app commands (`doctor`, `chat`, `openrouter-key`, `models`, `serve`, `ui`) are Python-only, and `orchestra` with no arguments is a usage error in Go instead of opening the UI. Other differences:
 
 - **Strict config validation is not in the Go version yet.** Unknown keys in `orchestra.json` are ignored instead of rejected. A file that cannot be parsed still fails, with exit code 1 (Python uses 2).
 - YAML configs (`orchestra.yaml`) are not supported; use `orchestra.json`.
@@ -234,6 +295,7 @@ The daemon will:
 3. Run the verification pipeline once per approved handoff, holding the writer lock as `orchestra` so no agent can start editing mid-pipeline. A dirty tree with no handoff is only reported, never committed.
 4. When verification passes, commit on `main_branch`. With `auto_push`, it then fetches, rebases onto the remote, pushes, and moves each `sync_branches` entry forward on the remote (`git push origin main:<branch>`, with no checkout). If any step fails, the sync stops there: a failed rebase is aborted, nothing more is pushed, a `GIT_SYNC_FAILED` event names the step, and the state goes to `ERROR`. If a different branch is checked out, nothing is committed.
 5. Publish all lifecycle events to `events.jsonl`, including `CUSTOM_EVENT` with `"action": "handoff_skipped"` when a handoff is not shipped.
+6. Hold `ERROR` after a failed verification or sync until the next writer claims the lock.
 
 ---
 
@@ -261,13 +323,27 @@ To use this in other projects (`Outcome Verifier`, `campus360-api`, etc.):
 
 ---
 
+## OpenRouter terminal agent
+
+See [docs/OPENROUTER.md](docs/OPENROUTER.md) for keyring setup, tool-capable models,
+permissions and verification. Start with `python -m pip install -e ".[openrouter]"`,
+then `python -m orchestra openrouter-key`, `python -m orchestra models` and
+`python -m orchestra chat -a openrouter -m <model-id>` in an interactive terminal.
+
+## Local API and sessions
+
+The Phase 3 [local API](docs/LOCAL-API.md) provides durable sessions and protected
+HTTP/WebSocket access. Install `.[app]` and run `python -m orchestra serve`; it prints
+a random loopback URL and private launch token. Use `orchestra ui` for the
+[Phase 4 window](docs/WINDOW.md).
+
 ## 🧪 Running Unit Tests
 
 ```bash
 cd agent-orchestra
 python -m unittest discover tests
 ```
-The 38 tests take about 30s. They cover models, event serialization, single-writer locking (including a multi-process claim race), the handoff-driven pipeline and git sync on throwaway repos with a bare remote, the shipping policy, script timeouts (including killing child processes), and strict configuration.
+The suite covers models, event serialization, single-writer locking (including a multi-process claim race), the handoff-driven pipeline and git sync on throwaway repos with a bare remote, the shipping policy, script timeouts, strict configuration, entry points, recorded Codex/Claude event translation and cancellation. OpenRouter tests add confined file tools, approval/denial, shell timeout/output limits, SSE parsing and local HTTP streaming, context summaries and usage accounting. Tests do not use real API credentials or credits.
 
 ---
 
