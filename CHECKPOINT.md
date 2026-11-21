@@ -317,3 +317,13 @@ Current recovery state; supersedes prior publishing/implementation next steps.
 - Phase4 authorized scope per docs/PLAN.md: React/Vite/TypeScript three-column projects/sessions, streamed transcript/toolcards/approvals/composer/player+model picker, changedfiles/diff, first-run doctor, settings, light/dark themes/keyboardshortcuts, pywebview nativefolder dialog with browserfallback, secure fragmentnoncebootstrap and packagedfrontend. No Phase5 worktrees/reviewactions, no paid/providercalls or credentialsetup. Stack alreadyselected by ownerplan; apply frontend-design and existing worktree isolation.
 - Phase4 visualcall: cool slate desktopworkspace, white transcript, blueaction/tealcompleted/amberapproval states; SegoeUI forinterface and CascadiaCode/codefallback. Project/sessionrail left, dominant transcript and anchoredcomposer center, restrained diffpanel right; functional statefirst, no marketinghero/sampleuserdata. Default theme followsOS with explicitlight/dark preference. No externalfont/script dependencies in renderedapp.
 - Next: stage exactreviewfixinventory and commit/push, openPR, then Phase4 tests/bootstrap milestones. No runningtaskprocesses. No globaldependencyinstall; appdeps isolated.
+
+## ECC vendoring — 2026-11-21
+
+- **Status:** COMPLETE. Committed on this branch at the owner's request (2026-11-21), not pushed. Owner asked to "implement" https://github.com/affaan-m/ECC for this project. Writer ownership released.
+- **Branch/base:** `claude/ecc-project-implementation-fa1178` at `310d7f4` (worktree `D:\agent-orchestra\.claude\worktrees\ecc-project-implementation-fa1178`).
+- **Decision:** Vendored a curated, project-local subset of ECC (upstream commit `4adeee6`, MIT) into `.claude/` instead of a global plugin or `npx ecc-universal` install. No hooks were installed. Project rules in `.claude/rules/agent-orchestra.md` override ECC: stdlib-only core, unittest not pytest, keyring secrets, no automatic git actions, CHECKPOINT.md as the ledger.
+- **Changed files:** `.claude/{agents,skills,commands,rules}/…`, `.claude/ECC-LICENSE`, `docs/ECC.md` (what is included or excluded, and how to update), and `.gitignore` (adds `.claude/settings.local.json`). All files are included in the commit.
+- **Checks:** `python -m unittest discover tests`: 148 tests, OK (1 skip). `git diff --check` is clean. Frontmatter parsed for 13 agent/command/skill files. Scanned the vendored files for hidden characters (none found) and for side-effect commands.
+- **Not verified:** A fresh Claude Code session picking up `.claude/rules/` and the `ecc-` commands. ECC hooks were not evaluated by running them.
+- **Next:** Owner decides whether to push or open a PR, and whether ECC hooks are wanted.
