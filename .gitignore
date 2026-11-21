@@ -32,3 +32,6 @@ venv.bak/
 .DS_Store
 Thumbs.db
 
+
+# Claude Code per-user settings (vendored ECC config in .claude/ is tracked)
+.claude/settings.local.json
