@@ -138,7 +138,18 @@ orchestra chat -r <session-id> "and now add tests"   # continue a previous sessi
 | `antigravity` | Google AI Pro / Ultra | Antigravity CLI (`agy`), signed in once interactively |
 | `claude` | Claude Pro / Max | Claude Code, signed in |
 
-`-p` sets what the agent may do: `read-only`, `edit` (default, changes files inside the project) or `full` (no limits). `--json` prints the normalized event stream instead of formatted text. Ctrl+C stops the current turn and the agent's processes.
+`-p` sets what the agent may do: `read-only`, `edit` (default) or `full` (no limits). `--json` prints the normalized event stream instead of formatted text. Ctrl+C stops the current turn and the agent's processes.
+
+What `edit` means for each agent, checked against the real CLIs on 2026-11-21:
+
+| Agent | `edit` uses | Edits files | Runs commands |
+|---|---|---|---|
+| Codex | `-s workspace-write` | yes | yes, in Codex's sandbox |
+| Antigravity | `--sandbox` | yes | yes, in Antigravity's sandbox |
+| Claude Code | `--permission-mode auto` | yes | yes, **not sandboxed**; Claude Code's own safety checker blocks risky actions (its sandbox is not available on Windows) |
+| OpenRouter | Orchestra's own policy | yes | asks first |
+
+`read-only` maps to each CLI's plan or read-only mode; `full` turns off every check.
 
 ---
 
