@@ -40,3 +40,7 @@ web/test-results/
 
 # Claude Code per-user settings (vendored ECC config in .claude/ is tracked)
 .claude/settings.local.json
+
+# Go binary build output
+/orchestra.exe
+/bin/
