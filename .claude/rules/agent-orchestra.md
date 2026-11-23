@@ -15,39 +15,40 @@ general toolkit; Agent Orchestra has its own design and owner decisions.
 
 ## Dependencies
 
-- The core package (`orchestra/`) uses the Python 3.10+ standard library only.
-  Optional extras live in `pyproject.toml` (`watch`, `yaml`, `openrouter`,
-  `app`, `test-app`).
-- Do not add a dependency, a dev tool config, or a `requirements*.txt` without
-  the owner's OK. This applies to the tools ECC names (pytest, black, isort,
-  ruff, mypy, bandit, python-dotenv). Use them only if they are already
-  installed, and never make a check depend on them.
+- The backend is Go (module `github.com/Adeel0-0/agent-orchestra`, `go 1.22` in
+  go.mod). The Python implementation was removed on 2026-11-23 after the Go port
+  reached parity; `scripts/*.py` are only example pipeline hooks.
+- Approved modules (owner, 2026-11-23): the Go standard library,
+  `golang.org/x/sys`, `github.com/fsnotify/fsnotify`, `modernc.org/sqlite`,
+  `github.com/coder/websocket`, `github.com/zalando/go-keyring`. Pin versions that
+  keep `go 1.22`. Do not add any other module (including `golang.org/x/term` or
+  helpers that only appear as indirect dependencies) without the owner's OK.
+- The UI in `web/` (React/TypeScript) keeps its own npm dependencies; ask before
+  adding new ones there too.
 - ECC's "search registries and adopt a library first" step does not apply to
   the core engine. Mention a candidate library to the owner instead of adding
   it.
 
 ## Tests and verification
 
-- The test framework is **unittest**, not pytest. Use ECC's `python-testing`
-  skill for test design ideas only, and write tests as `unittest.TestCase`.
-- Full suite: `python -m unittest discover tests`
-- One file: `python -m unittest discover tests -p test_<name>.py`
-- App tests need the `test-app` extra. Expect one symlink-privilege skip on
-  Windows.
-- Test first (RED, then GREEN) as ECC asks. Coverage: there is no coverage
-  dependency. Run `python -m coverage` only if it is already installed, and
-  treat 80% as a target, not a gate.
-- When the `verification-loop` skill shows npm/tsc/eslint commands, use these
-  instead: `python -m compileall -q orchestra`, the unittest suite above, and
-  `git diff --check`.
+- Tests use Go's `testing` package. Use ECC's testing skills for test design ideas
+  only.
+- Full check: `go vet ./...` and `go test ./...`. Also run `GOOS=linux go vet ./...`
+  and `GOOS=darwin go vet ./...`: the project is Windows-first but must build on
+  Linux and macOS. Expect a few symlink-privilege skips on Windows.
+- UI: `cd web; npm run build` (outputs to `internal/webui/dist`, which the binary
+  embeds), `npm test`, and `npx playwright test` (uses the Go fixture server
+  `internal/app/uifixture`).
+- Test first (RED, then GREEN) as ECC asks. Coverage is a target, not a gate.
+- When the `verification-loop` skill shows npm/tsc/eslint commands for the
+  backend, use `go vet ./...`, `go test ./...` and `git diff --check` instead.
 
 ## Secrets
 
 - OpenRouter keys live in the OS keyring (`keyring`). Never store keys in the
   repository, in `.env` files, or in CLI arguments. Never print a key.
   Ignore ECC's `python-dotenv` example.
-- `ci_tracker` gets a GitHub token from the environment or `gh auth token`.
-  Never log it.
+- Never log the app server's launch token, and never put it in a URL.
 
 ## Git
 
@@ -73,17 +74,18 @@ general toolkit; Agent Orchestra has its own design and owner decisions.
   names (`/plan`, `/python-review`) and some ECC commands that are not
   installed here (`/multi-plan`, `/plan-canvas`, `/plan-prd`, `/prp-*`,
   `/tdd`). Treat those mentions as absent.
-- Run the `security-reviewer` agent for changes to `orchestra/tools/`
-  (filesystem and shell tools), `orchestra/players/process.py` (subprocess
-  and cmd.exe argument handling), the OpenRouter client and credentials, and
-  the local app server in `orchestra/app/`.
+- Run the `security-reviewer` agent for changes to `internal/tools/`
+  (filesystem and shell tools), `internal/runner/` (process groups, stream.go
+  and the cmd.exe argument guard), `internal/openrouter/` (client and
+  credentials), and the local app server in `internal/app/`.
 
 ## Style notes
 
-- ECC's immutability rule applies to new code. Do not refactor existing
-  engine dataclasses just to make them frozen.
-- `print()` is fine in `orchestra/cli.py` and `orchestra/chat.py`, where it is
-  the user interface. Use `logging` elsewhere.
+- ECC's immutability rule applies to new code where it fits Go; do not refactor
+  existing code just for it.
+- Printing to stdout/stderr is fine in `cmd/orchestra` and `internal/chat`, where
+  it is the user interface. Elsewhere return errors or events instead.
 - This is a Windows-first project that also runs on Linux and macOS. Use
-  `pathlib`, and never build a shell string from user input. See the cmd.exe
-  metacharacter guard in `orchestra/players/process.py`.
+  `path/filepath`, put OS-specific code behind build tags, and never build a shell
+  string from user input. Prompts go to agent CLIs on stdin; see the cmd.exe
+  metacharacter guard in `internal/runner/stream.go`.

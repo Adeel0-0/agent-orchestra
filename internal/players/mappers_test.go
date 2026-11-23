@@ -13,7 +13,7 @@ import (
 
 // Ported from tests/test_players.py. Fixtures are read from the Python test tree.
 
-var fixtures = filepath.Join("..", "..", "tests", "fixtures")
+var fixtures = "testdata" // recorded real CLI output
 
 func project() string {
 	if runtime.GOOS == "windows" {

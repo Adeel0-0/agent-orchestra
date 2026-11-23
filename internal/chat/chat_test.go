@@ -28,7 +28,7 @@ func noColor() *bool { b := false; return &b }
 
 func replayCodex(t *testing.T, name string) []players.Event {
 	t.Helper()
-	f, err := os.Open(filepath.Join("..", "..", "tests", "fixtures", name))
+	f, err := os.Open(filepath.Join("..", "players", "testdata", name))
 	if err != nil {
 		t.Fatal(err)
 	}

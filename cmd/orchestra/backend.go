@@ -17,7 +17,7 @@ import (
 	"github.com/Adeel0-0/agent-orchestra/internal/players"
 	"github.com/Adeel0-0/agent-orchestra/internal/pyjson"
 	"github.com/Adeel0-0/agent-orchestra/internal/registry"
-	webassets "github.com/Adeel0-0/agent-orchestra/orchestra/app/web"
+	"github.com/Adeel0-0/agent-orchestra/internal/webui"
 )
 
 func backendCommands() []command {
@@ -150,7 +150,7 @@ func appDependencies(withWeb bool) app.Config {
 	cfg := app.Config{Factory: playerFactory, PlayerHealth: playerHealth}
 	addOpenRouterDependencies(&cfg)
 	if withWeb {
-		cfg.Web = webassets.FS()
+		cfg.Web = webui.FS()
 	}
 	return cfg
 }

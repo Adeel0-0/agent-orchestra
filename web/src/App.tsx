@@ -1028,7 +1028,7 @@ export function App({ api }: { api: Api }) {
                 : "No key is configured. Enter it privately in a terminal:"}
             </p>
             {!settings.openrouter_key_present && (
-              <code>python -m orchestra openrouter-key</code>
+              <code>orchestra openrouter-key</code>
             )}
             <p className="field-help">
               API credits are separate from agent subscriptions. Keys are never

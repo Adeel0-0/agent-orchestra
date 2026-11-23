@@ -7,17 +7,17 @@ stored in the OS credential manager.
 From this repository, in an interactive terminal:
 
 ```powershell
-python -m pip install -e ".[openrouter]"
-python -m orchestra openrouter-key
-python -m orchestra models
-python -m orchestra chat -a openrouter -m <model-id> -C <project-folder>
+orchestra openrouter-key
+orchestra models
+orchestra chat -a openrouter -m <model-id> -C <project-folder>
 ```
 
-The hidden key prompt saves through `keyring` (Windows Credential Manager on
-Windows). It refuses file-based backends and terminals that cannot hide input.
+The hidden key prompt saves the key in the OS credential store: Windows Credential
+Manager (in the same layout Python's `keyring` used, so an earlier key still works),
+the macOS Keychain, or the Linux secret service. It refuses terminals that cannot
+hide input.
 Keep keys out of command arguments, environment files, `orchestra.json` and
-transcripts. Running `openrouter-key` again replaces the saved key. Core and CLI
-players work without the optional dependency.
+transcripts. Running `openrouter-key` again replaces the saved key.
 
 `models` reads the public catalog and lists only models advertising tool support.
 The public catalog is cached for five minutes across clients in the server process.
@@ -28,7 +28,7 @@ access to a specific model.
 Add a prompt for one turn; omit it for a conversation in one process:
 
 ```powershell
-python -m orchestra chat -a openrouter -m <model-id> -C <project-folder> "Add a test for the parser and run it"
+orchestra chat -a openrouter -m <model-id> -C <project-folder> "Add a test for the parser and run it"
 ```
 
 The player emits the existing `session.started`, `text.delta`, `reasoning.delta`,
@@ -115,13 +115,14 @@ No more tools run after cancellation.
 
 ## Verification
 
-`python -m unittest discover tests` exercises synthetic documented API chunks and a
-local HTTP server, plus real temporary files and subprocesses. Tests use no real
+`go test ./internal/openrouter/... ./internal/tools/...` exercises synthetic
+documented API chunks and a local HTTP server, plus real temporary files and
+subprocesses. Tests use no real
 credentials or credits. API examples are separate from recorded CLI fixtures.
 The symlink test skips on Windows without privileges; a separate junction test
 exercises external-directory escape without those privileges.
 
-Offline wrap-up completed on 2026-11-14. The latest full suite ran 98 tests in
+History (Python version): offline wrap-up completed on 2026-11-14. The latest full suite ran 98 tests in
 41.805 seconds: 97 passed and 1 symlink-privilege test skipped. Final diff whitespace,
 Python compilation, CLI help, doctor and public model-catalog smoke checks passed
 after the review fixes. Those final checks required no implementation changes, so

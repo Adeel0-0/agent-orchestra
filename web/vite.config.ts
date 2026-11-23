@@ -4,7 +4,7 @@ export default defineConfig({
   plugins: [react()],
   base: "/",
   build: {
-    outDir: "../orchestra/app/web/dist",
+    outDir: "../internal/webui/dist",
     emptyOutDir: true,
     sourcemap: false,
   },

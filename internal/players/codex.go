@@ -3,7 +3,7 @@ package players
 // ChatGPT Plus / Pro through the official Codex CLI (`codex exec --json`)
 // (orchestra/players/codex.py).
 //
-// Event shapes were recorded from codex-cli 0.166.0 (tests/fixtures/codex_*.jsonl):
+// Event shapes were recorded from codex-cli 0.166.0 (testdata/codex_*.jsonl):
 //
 //	thread.started {thread_id}            turn.started
 //	item.started / item.completed {item}  item.type: agent_message, reasoning,
