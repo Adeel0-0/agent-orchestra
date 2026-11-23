@@ -175,7 +175,10 @@ Install into `$GOPATH/bin` (on your `PATH`):
 go install github.com/Adeel0-0/agent-orchestra/cmd/orchestra@latest
 ```
 
-The Go binary covers the engine commands: `status`, `claim`, `release`, `emit`, `listen`, `run`, `start` and `init`, with the same flags, defaults, `[OK]`/`[FAILED]` messages and exit codes as the Python CLI. The agent and app commands (`doctor`, `chat`, `openrouter-key`, `models`, `serve`, `ui`) are Python-only, and `orchestra` with no arguments is a usage error in Go instead of opening the UI. Other differences:
+The Go binary has every command the Python CLI has: the engine commands (`status`, `claim`, `release`, `emit`, `listen`, `run`, `start`, `init`) and the agent and app commands (`doctor`, `chat`, `openrouter-key`, `models`, `serve`, `ui`), with the same flags, defaults, `[OK]`/`[FAILED]` messages and exit codes. `orchestra` with no arguments opens the workspace, as in Python. The built UI is embedded in the binary, and the server uses the same `~/.orchestra` data folder, so chat history from the Python version carries over. Python and Go servers cannot share a data folder at the same time. Differences:
+
+- **The workspace opens in your default browser.** There is no native window or folder picker yet; type or paste the project folder path. `--browser` is accepted and changes nothing.
+- On Windows, the OpenRouter key is read and written in the same Credential Manager format Python's `keyring` uses, so a key saved by either version works in both.
 
 - **Strict config validation is not in the Go version yet.** Unknown keys in `orchestra.json` are ignored instead of rejected. A file that cannot be parsed still fails, with exit code 1 (Python uses 2).
 - YAML configs (`orchestra.yaml`) are not supported; use `orchestra.json`.
