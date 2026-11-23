@@ -457,6 +457,17 @@ This is the current recovery state and supersedes earlier STOP/continuation next
 - **Running processes:** none (all test trees verified gone). Disposable folders left in the scratchpad.
 - **Next concrete action:** owner answers the decisions above. Then OpenRouter: `python -m pip install -e ".[openrouter]"`, owner runs `python -m orchestra openrouter-key` privately, then the read-only approve/deny run in `docs/OPENROUTER.md`.
 
+## Go skills vendoring — 2026-11-23
+
+- **Status:** COMPLETE, UNCOMMITTED. Owner shared https://github.com/samber/cc-skills-golang and chose "vendor a subset here". Claude claimed writer ownership for this change and releases it at the end of this entry. No active writer.
+- **Branch/base:** worktree `D:\agent-orchestra\.claude\worktrees\go-skills-repo-5d6fee`, branch `claude/go-skills-repo-5d6fee` at `c2b28c4` (main, includes the Go port, PR #9). No commit or push.
+- **Decision:** 10 skills from upstream commit `d68d80a` (MIT) were copied into `.claude/skills/` unchanged except that `evals/` was left out: concurrency, context, error-handling, testing, safety, security, troubleshooting, code-style, naming, lint. Left out: `golang-cli` (Cobra/Viper default; this CLI is stdlib), `golang-project-layout` (a checklist step writes to CLAUDE.md "no user confirmation needed", and its assets include an active `.gitignore`), and all library and stack skills.
+- **Changed files:** `.claude/skills/golang-*/` (59 files), `.claude/CC-SKILLS-GOLANG-LICENSE`, `.claude/rules/agent-orchestra.md` (new "Go port" section: stdlib first, no new modules or `go get -tool`, `testing`-only tests, Go check commands, CRLF gofmt note), `docs/GO-SKILLS.md`, this file.
+- **Review of vendored text:** scanned for hidden/bidi characters (none), injection phrases (none), pipe-to-shell (none), side-effect steps. The only ones found are `go get`/`go get -tool`/`go install` lines, which the override covers.
+- **Checks:** `go vet ./...` ok; `go test ./...` all 9 packages with tests ok (go1.27.2); frontmatter parsed for all 10 SKILL.md; `go list ./...` does not see `.claude/`; `git diff --check` ok. `gofmt -l` flags every file only because of CRLF checkout (`core.autocrlf=true`); committed blobs are gofmt-clean (0 files). Python suite not run (no Python changes).
+- **Not verified:** a fresh Claude Code session listing the `golang-*` skills.
+- **Next:** owner decides whether to commit and open a PR.
+
 ## ECC vendoring — 2026-11-21
 
 - **Status:** COMPLETE. Committed on this branch at the owner's request (2026-11-21), not pushed. Owner asked to "implement" https://github.com/affaan-m/ECC for this project. Writer ownership released.

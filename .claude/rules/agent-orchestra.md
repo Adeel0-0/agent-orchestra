@@ -78,6 +78,41 @@ general toolkit; Agent Orchestra has its own design and owner decisions.
   and cmd.exe argument handling), the OpenRouter client and credentials, and
   the local app server in `orchestra/app/`.
 
+## Go port (`cmd/`, `internal/`) and the vendored Go skills
+
+The `golang-*` skills in `.claude/skills/` come from `samber/cc-skills-golang`
+(see `docs/GO-SKILLS.md`). Each one says a company skill can supersede it.
+This section is that override for this repository.
+
+- The Go port uses the standard library, plus `fsnotify` and `golang.org/x/sys`.
+  Do not add a Go module, a `tool` directive, or a `.golangci.yml` without the
+  owner's OK. That means no `go get`, `go get -tool` or `go mod` change made
+  only to follow a skill.
+- The skills recommend libraries: `samber/oops`, `samber/lo`, `samber/ro`, the
+  `samber/slog-*` packages, testify, `go.uber.org/goleak`, clockwork, Cobra and
+  Viper. Use the stdlib way instead (`errors`, `fmt.Errorf("...: %w")`,
+  `log/slog`, `slices`, `maps`, `testing`, the CLI's own flag handling).
+  Mention a library to the owner instead of adding it.
+- Tests use the `testing` package only: table-driven tests and `t.Run`. Check
+  for goroutine leaks with `runtime.NumGoroutine` or explicit shutdown
+  checks, not goleak.
+- Tools that the skills say to `go install` (golangci-lint, govulncheck,
+  gosec, dlv, gotests) may be used if they are already installed. Never make a
+  check depend on them.
+- Go checks: `go vet ./...`, `go test ./...` (add `-race` if cgo is
+  available), and gofmt. On Windows with `core.autocrlf=true`, `gofmt -l`
+  flags every file because of CRLF line endings, so check the LF content
+  instead: `git show HEAD:<file> | gofmt -l` for committed files, or pipe the
+  working file through `tr -d '\r'` for edited ones. The
+  cross-language tests run against the Python CLI. When Go and Python output
+  disagree, the Python CLI wins unless the owner says otherwise.
+- The skills point to other `samber/cc-skills-golang@...` skills, and the
+  only ones vendored here are listed in `docs/GO-SKILLS.md`. Treat references
+  to the others (for example `golang-design-patterns`, `golang-gopls`,
+  `golang-samber-oops`, `golang-continuous-integration`) as absent.
+- Run the `security-reviewer` agent for Go changes that start processes or
+  kill process trees (`internal/runner`), and for `internal/gitsync`.
+
 ## Style notes
 
 - ECC's immutability rule applies to new code. Do not refactor existing
