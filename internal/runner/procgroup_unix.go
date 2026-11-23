@@ -28,7 +28,10 @@ type processGroup struct{ pid int }
 
 func newProcessGroup(*exec.Cmd) (*processGroup, error) { return &processGroup{}, nil }
 
-func (g *processGroup) started(pid int) { g.pid = pid }
+func (g *processGroup) started(pid int) error {
+	g.pid = pid
+	return nil
+}
 
 func (g *processGroup) kill() error {
 	if g.pid == 0 {
@@ -40,5 +43,10 @@ func (g *processGroup) kill() error {
 	}
 	return err
 }
+
+// killLeftovers ends processes the command left in its group after it exited (for
+// example `npm run dev &`). The kernel does not reuse a pid while it is still the id
+// of a live process group, so this cannot hit an unrelated process.
+func (g *processGroup) killLeftovers() { _ = g.kill() }
 
 func (g *processGroup) close() {}

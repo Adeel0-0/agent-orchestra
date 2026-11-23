@@ -34,7 +34,7 @@ type command struct {
 }
 
 func commands() []command {
-	return []command{
+	cmds := []command{
 		{name: "status", help: "Show current state and lock information", usage: "status [--json]", stopAfter: -1,
 			flags: []flagSpec{{Name: "json", Kind: "bool"}}, run: cmdStatus},
 		{name: "claim", help: "Claim writer lock for a task", usage: "claim TASK_ID [--agent AGENT] [--scope SCOPE] [--lease LEASE] [--force]", stopAfter: -1,
@@ -53,16 +53,17 @@ func commands() []command {
 		{name: "init", help: "Create a starter orchestra.json configuration", usage: "init [--force]", stopAfter: -1,
 			flags: []flagSpec{{Name: "force", Kind: "bool"}}, run: cmdInit},
 	}
+	cmds = append(cmds, backendCommands()...)
+	return append(cmds, openRouterCommands()...)
 }
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 func run(args []string, out, errOut io.Writer) int {
 	cmds := commands()
-	if len(args) == 0 {
-		usage(errOut, cmds)
-		fmt.Fprintln(errOut, "orchestra: error: the following arguments are required: command")
-		return 2
+	// Like Python: no arguments (or a leading --browser) opens the workspace.
+	if len(args) == 0 || args[0] == "--browser" {
+		args = append([]string{"ui"}, args...)
 	}
 	if args[0] == "-h" || args[0] == "--help" {
 		usage(out, cmds)
@@ -118,6 +119,8 @@ func checkPositionals(name string, p parsed) error {
 		if n < 1 {
 			return usageError{"the following arguments are required: script, args"}
 		}
+	case "chat":
+		// Any number of prompt words (nargs="*"); none means an interactive conversation.
 	default:
 		if n > 0 {
 			return usageError{"unrecognized arguments: " + strings.Join(p.positional, " ")}
@@ -127,7 +130,11 @@ func checkPositionals(name string, p parsed) error {
 }
 
 func usage(w io.Writer, cmds []command) {
-	fmt.Fprintln(w, "usage: orchestra {status,claim,release,emit,listen,run,start,init} ...")
+	names := make([]string, len(cmds))
+	for i, c := range cmds {
+		names[i] = c.name
+	}
+	fmt.Fprintf(w, "usage: orchestra {%s} ...\n", strings.Join(names, ","))
 	fmt.Fprintln(w, "\nAutonomous Multi-Agent Orchestration & IPC Event Bus (Go binary)\n\ncommands:")
 	for _, c := range cmds {
 		fmt.Fprintf(w, "  %-9s %s\n", c.name, c.help)

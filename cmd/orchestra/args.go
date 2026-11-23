@@ -9,6 +9,7 @@ import (
 // flagSpec describes one --flag. Kind is "string", "int", "float" or "bool".
 type flagSpec struct {
 	Name    string
+	Short   string // optional one-letter alias, e.g. "a" for -a (argparse's "-a", "--agent")
 	Kind    string
 	Default string
 	Choices []string
@@ -39,9 +40,12 @@ func (e usageError) Error() string { return e.msg }
 // positional too (argparse.REMAINDER for `run <script> args...`); -1 disables that.
 func parseArgs(args []string, specs []flagSpec, stopAfter int) (parsed, error) {
 	p := parsed{values: map[string]string{}, bools: map[string]bool{}}
-	byName := map[string]flagSpec{}
+	byName, byShort := map[string]flagSpec{}, map[string]flagSpec{}
 	for _, s := range specs {
 		byName[s.Name] = s
+		if s.Short != "" {
+			byShort[s.Short] = s
+		}
 		if s.Kind != "bool" {
 			p.values[s.Name] = s.Default
 		}
@@ -56,12 +60,21 @@ func parseArgs(args []string, specs []flagSpec, stopAfter int) (parsed, error) {
 			p.positional = append(p.positional, args[i+1:]...)
 			break
 		}
-		if !strings.HasPrefix(a, "--") || len(a) == 2 {
+		var name, value string
+		var hasValue, ok bool
+		var spec flagSpec
+		switch {
+		case strings.HasPrefix(a, "--") && len(a) > 2:
+			name, value, hasValue = strings.Cut(strings.TrimPrefix(a, "--"), "=")
+			spec, ok = byName[name]
+		case len(a) == 2 && a[0] == '-' && byShort[a[1:]].Name != "":
+			// A one-letter alias such as -a; "-" alone stays positional (it means stdin).
+			spec, ok = byShort[a[1:]], true
+			name = spec.Name
+		default:
 			p.positional = append(p.positional, a)
 			continue
 		}
-		name, value, hasValue := strings.Cut(strings.TrimPrefix(a, "--"), "=")
-		spec, ok := byName[name]
 		if !ok {
 			return p, usageError{fmt.Sprintf("unrecognized arguments: %s", a)}
 		}

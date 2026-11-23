@@ -2,6 +2,7 @@ package runner
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +30,15 @@ func TestMain(m *testing.M) {
 		fmt.Println("partial output")
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
+	case "spawn-exit":
+		// Leave a background process running (like `npm run dev &`), then exit normally.
+		gc := exec.Command(os.Args[0], "-test.run=NONE")
+		gc.Env = append(os.Environ(), helperEnv+"=grandchild")
+		if err := gc.Start(); err != nil {
+			os.Exit(2)
+		}
+		fmt.Println("left a background process")
+		os.Exit(0)
 	case "grandchild":
 		// Leave a marker if still alive 3s later.
 		time.Sleep(3 * time.Second)
@@ -40,6 +50,11 @@ func TestMain(m *testing.M) {
 	case "json":
 		fmt.Println("noise line")
 		fmt.Println(`{"tests": 3, "ok": true}`)
+		os.Exit(0)
+	case "echo-stdin":
+		data, _ := io.ReadAll(os.Stdin)
+		fmt.Println("line one")
+		fmt.Println("stdin=" + string(data))
 		os.Exit(0)
 	case "exit3":
 		fmt.Fprint(os.Stderr, "bad")
