@@ -175,7 +175,11 @@ func (r *Runner) Run(c Command, opts Options) (res Result) {
 		res.Stderr = err.Error()
 		return res
 	}
-	group.started(cmd.Process.Pid)
+	if err := group.started(cmd.Process.Pid); err != nil {
+		cmd.Wait()
+		res.Stderr = err.Error()
+		return res
+	}
 
 	waitErr := cmd.Wait()
 	res.Stdout = stdout.String()
