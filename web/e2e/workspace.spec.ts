@@ -4,20 +4,18 @@ import { resolve } from "node:path";
 let child: ChildProcessWithoutNullStreams, url: string;
 const fixtureErrors: string[] = [];
 test.beforeAll(async () => {
-  child = spawn(
-    resolve("../.orchestra/phase3-venv/Scripts/python.exe"),
-    [resolve("../tests/ui_fixture.py")],
-    {
-      cwd: resolve(".."),
-      env: { ...process.env, PYTHONPATH: resolve("..") },
-      stdio: "pipe",
-    },
-  );
+  test.setTimeout(180000); // first `go run` compiles the fixture server
+  // The Go fixture server: real app server and embedded UI, fake agent.
+  child = spawn("go", ["run", "./internal/app/uifixture"], {
+    cwd: resolve(".."),
+    env: process.env,
+    stdio: "pipe",
+  });
   url = await new Promise<string>((yes, no) => {
     let output = "";
     const timer = setTimeout(
       () => no(new Error("Fixture server timed out")),
-      15000,
+      120000, // first `go run` compiles the server
     );
     child.stdout.on("data", (chunk) => {
       output += chunk;

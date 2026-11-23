@@ -3,7 +3,7 @@ package players
 // Claude Pro / Max through the official Claude Code CLI
 // (`claude -p --output-format stream-json`) (orchestra/players/claude.py).
 //
-// Event shapes were recorded from Claude Code 2.1.319 (tests/fixtures/claude_tool.jsonl):
+// Event shapes were recorded from Claude Code 2.1.319 (testdata/claude_tool.jsonl):
 //
 //	system/init {session_id, model}
 //	assistant {message.content[]: text | thinking | tool_use}

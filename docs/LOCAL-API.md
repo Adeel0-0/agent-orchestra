@@ -6,11 +6,10 @@ conversation history, and uses the existing players and writer-lock engine.
 
 ## Start
 
-From the repository, install the optional app dependencies, then start:
+Start the API only (no workspace UI):
 
 ```powershell
-python -m pip install -e ".[app]"
-python -m orchestra serve
+orchestra serve
 ```
 
 `serve` reserves a random port on **127.0.0.1** and prints its URL and a new launch
@@ -135,12 +134,10 @@ Per-launch writer identities prevent silent reacquisition of another launch's le
 ## Verification
 
 ```powershell
-python -m pip install -e ".[test-app]"
-python -m unittest discover tests
+go test ./internal/app/...
 ```
 
-Core tests work without web dependencies; HTTP/socket tests skip with install
-guidance when those optional dependencies are absent. Tests use temporary stores,
+Tests use temporary stores,
 repositories and fake players. The real local HTTP/WebSocket acceptance test
 disconnects during a running turn, reconnects/replays, restarts the server and
 submits a follow-up with the persisted backend ID. API-player snapshot tests cover
@@ -148,7 +145,7 @@ history/usage restore and interrupted tool repair. No real subscription or paid 
 call is required. Manual console Ctrl+C, abrupt real-CLI crash cleanup, actual
 provider resume and Linux/macOS acceptance remain separate checks.
 
-Verified on 2026-11-15 in an isolated Windows Python 3.12 environment with
+History (Python version): verified on 2026-11-15 in an isolated Windows Python 3.12 environment with
 Starlette 0.52.1, Uvicorn 0.54.0, websockets 16.1.1 and httpx 0.28.1: the full suite
 ran 156 tests in 59.413 seconds (155 passed, one symlink-privilege skip), including
 the Phase 4 UI/bootstrap/runtime checks. Browser acceptance uses a fake provider

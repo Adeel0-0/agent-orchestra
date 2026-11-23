@@ -6,8 +6,8 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-!orchestra/app/web/dist/
-!orchestra/app/web/dist/**
+!internal/webui/dist/
+!internal/webui/dist/**
 downloads/
 eggs/
 .eggs/

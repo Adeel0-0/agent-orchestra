@@ -3,7 +3,7 @@ package players
 // Google AI Pro / Ultra through the official Antigravity CLI (`agy`, headless stream-json)
 // (orchestra/players/antigravity.py).
 //
-// Event shapes recorded from agy 1.5.14 on 2026-11-21 (tests/fixtures/agy_*.jsonl):
+// Event shapes recorded from agy 1.5.14 on 2026-11-21 (testdata/agy_*.jsonl):
 //
 //	{"event":"init","conversation_id":...,"init":{"cwd","tools","permission_mode"}}
 //	{"event":"step_update","step_update":{"conversation_id","step_index",

@@ -1,6 +1,6 @@
 # Agent Orchestra → a simple, self-owned coding-agent app
 
-Status: PR #2 and PR #3 are merged into `main` (5be5bc2). Phase 1 implemented for Codex/Claude; Antigravity remains deferred and unverified. Phase 2/3 offline verification complete; live OpenRouter acceptance remains pending by owner choice. PR #3 review fixes are published as 175eeec in open PR #4. Phase 4 window implementation and offline verification are published as 09ed7d5 in open PR #5 on codex/phase-4-window, stacked on PR #4. Merge #4 first, then retarget #5 to main if needed. Phases 5 to 7 not started. See `CHECKPOINT.md`, `docs/WINDOW.md`, `docs/OPENROUTER.md` and `docs/LOCAL-API.md`.
+Status (2026-11-23): **Phases 0-4 are done; Phase 5 is next.** Phases 0-4 were first built in Python (PRs #1-#8), then the whole backend was ported to Go (engine in PR #9, everything else in PR #10) and the Python implementation was removed. **The Python implementation stopped after Phase 4**: Phase 5 (worktrees and review) was never started in Python and is to be built in Go. Live checks: Codex, Claude and Antigravity verified from the terminal (2026-11-21); Codex verified through the Go CLI and Go server, and the browser workspace verified against the Go server with a fake agent (2026-11-23). Still pending: OpenRouter live (needs the owner's key) and Claude/Antigravity through the server. Owner decisions since: backend in Go; browser workspace instead of a native window for now; strict config validation halted; Claude edit = auto mode. See `CHECKPOINT.md`.
 
 ## 1. The goal in one paragraph
 
@@ -305,7 +305,7 @@ shortcuts for new session, stop and switch project.
 Check: from a cold start, open a folder, send a prompt, approve an edit, read the diff,
 and switch model, without touching the terminal.
 
-### Phase 5: worktrees and review (3 to 4 days)
+### Phase 5: worktrees and review (3 to 4 days) — NEXT, to be built in Go
 
 - New session option: "isolated". Creates `.orchestra/worktrees/<slug>` on a new branch.
 - The single-writer lock becomes one lock per worktree, so parallel sessions are legal
